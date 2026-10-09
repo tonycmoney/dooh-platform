@@ -87,7 +87,7 @@ button.link.danger { color: var(--danger); }
 .content { flex: 1; padding: 1.5rem 2rem; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .head-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.head-actions input { width: 220px; }
+.head-actions input:not([type=checkbox]) { width: 220px; }
 .title-input { font-size: 1.4rem !important; font-weight: 700; max-width: 420px; }
 .actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; align-items: center; }
 .row { display: flex; gap: 1rem; align-items: flex-end; }
