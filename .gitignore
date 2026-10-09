@@ -1,0 +1,61 @@
+# --- Secrets: env files, passwords, API keys, signing keys ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+key.properties
+secrets.*
+*secret*.json
+credentials*.json
+service-account*.json
+google-services.json
+
+# --- Databases and data dumps ---
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+pgdata/
+
+# --- Uploaded media (videos and images live only on this Mac) ---
+media/*
+!media/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# --- Node / dashboard ---
+node_modules/
+dashboard/dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- Flutter / Android build output ---
+player/build/
+player/.dart_tool/
+player/.flutter-plugins
+player/.flutter-plugins-dependencies
+player/android/.gradle/
+player/android/local.properties
+player/android/app/debug/
+player/android/app/release/
+**/android/app/.cxx/
+*.apk
+*.aab
+
+# --- Logs, editor and OS junk ---
+logs/
+*.log
+.idea/
+.vscode/
+*.iml
+.DS_Store
