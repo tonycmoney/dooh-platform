@@ -1,0 +1,69 @@
+# DOOH Platform
+
+A self-hosted digital screen ad network:
+
+- **backend/**: FastAPI + PostgreSQL. Handles device pairing, media and text slides, loops, the player manifest, heartbeats, idempotent proof of play and an approval queue.
+- **dashboard/**: React (Vite + TypeScript) control panel that runs on the Mac.
+- **player/**: Flutter Android app for the screens (tested on a KB10 tablet running Android 16).
+
+## Run it locally
+
+Install the tools once:
+
+```sh
+brew install postgresql@17 uv node ffmpeg
+cp backend/.env.example backend/.env   # then set ADMIN_PASSWORD and SECRET_KEY
+createdb dooh
+(cd dashboard && npm install)
+```
+
+Start everything:
+
+```sh
+scripts/dev.sh
+```
+
+- Dashboard: http://localhost:5173 (sign in with `ADMIN_PASSWORD` from `backend/.env`)
+- API docs: http://localhost:8000/docs
+
+When a tablet is plugged in over USB, `dev.sh` runs `adb reverse tcp:8000 tcp:8000`. That lets the tablet reach the backend at `http://127.0.0.1:8000`, which is the player's default server address.
+
+## Install the player on the tablet
+
+```sh
+cd player
+flutter run -d <device-id>          # development build with logs
+# or: flutter build apk --release && adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+### One-time tablet setup (Android 10 and later)
+
+Android doesn't let apps start themselves in the background. Two settings, done once by hand, let the player start after a reboot and restart after a crash. The pairing screen shows both as buttons:
+
+1. **Display over other apps**: turn this on for DOOH Player.
+2. **Default Home app**: choose DOOH Player. Android then brings it back after reboots, crashes and Home presses.
+
+To get back into tablet settings after that, tap the **top-left corner 5 times** while content is playing. This opens the player's settings panel.
+
+## How it works
+
+| Requirement | Implementation |
+| --- | --- |
+| Pairing | Unpaired tablet calls `POST /api/player/register` and shows a 6-character code. You enter it under Screens → Pair new screen. The tablet then collects its device token. |
+| Permanent ID | Android `ANDROID_ID`, which survives reinstalls |
+| Updates reach the tablet within a minute | The tablet polls `GET /api/player/manifest` every 60 s, and a heartbeat that sees a new manifest version triggers a sync right away |
+| Offline playback | Every file is downloaded and its SHA-256 checked before a new loop goes live; files are cached on the tablet |
+| Heartbeat | `POST /api/player/heartbeat` every 60 s with battery, GPS, app version and what's playing now. The screen shows as offline after 180 s (3 missed heartbeats). |
+| Proof of play | Each play gets a UUID on the tablet and is queued on disk. `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
+| Kiosk mode | Fullscreen landscape, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
+| Crash restart | `PlayerApplication.kt` catches crashes and relaunches the app through a separate restarter process, with an alarm as backup |
+| Approval queue | Only approved media is sent to screens. "Auto-approve my uploads" (on the Media page) controls whether new uploads skip the queue. |
+
+Item timing: each loop item plays for its set seconds (default 10). A video either **loops** to fill that time, or plays **once and is cut** at that time (or ends when the video does, if that comes first).
+
+## Tests
+
+```sh
+(cd backend && uv run pytest)
+(cd player && flutter test)
+```
