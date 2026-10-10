@@ -16,18 +16,18 @@ class TextSlide {
   final String backgroundColor;
 
   factory TextSlide.fromJson(Map<String, dynamic> json) => TextSlide(
-        text: json['text'] as String? ?? '',
-        fontSize: json['font_size'] as int? ?? 96,
-        textColor: json['text_color'] as String? ?? '#FFFFFF',
-        backgroundColor: json['background_color'] as String? ?? '#000000',
-      );
+    text: json['text'] as String? ?? '',
+    fontSize: json['font_size'] as int? ?? 96,
+    textColor: json['text_color'] as String? ?? '#FFFFFF',
+    backgroundColor: json['background_color'] as String? ?? '#000000',
+  );
 
   Map<String, dynamic> toJson() => {
-        'text': text,
-        'font_size': fontSize,
-        'text_color': textColor,
-        'background_color': backgroundColor,
-      };
+    'text': text,
+    'font_size': fontSize,
+    'text_color': textColor,
+    'background_color': backgroundColor,
+  };
 }
 
 class ManifestItem {
@@ -42,6 +42,8 @@ class ManifestItem {
     this.sha256,
     this.sizeBytes,
     this.mediaDurationSeconds,
+    this.width,
+    this.height,
     this.text,
   });
 
@@ -55,7 +57,15 @@ class ManifestItem {
   final String? sha256;
   final int? sizeBytes;
   final double? mediaDurationSeconds;
+  final int? width;
+  final int? height;
   final TextSlide? text;
+
+  /// Width / height of the image or video, when known.
+  double? get aspectRatio =>
+      (width != null && height != null && width! > 0 && height! > 0)
+      ? width! / height!
+      : null;
 
   bool get hasFile => kind != MediaKind.text && url != null && sha256 != null;
 
@@ -69,36 +79,47 @@ class ManifestItem {
   }
 
   factory ManifestItem.fromJson(Map<String, dynamic> json) => ManifestItem(
-        itemId: json['item_id'] as String,
-        mediaId: json['media_id'] as String,
-        kind: MediaKind.values.byName(json['kind'] as String),
-        title: json['title'] as String? ?? '',
-        durationSeconds: json['duration_seconds'] as int? ?? 10,
-        videoFit: VideoFit.values.byName(json['video_fit'] as String? ?? 'loop'),
-        url: json['url'] as String?,
-        sha256: json['sha256'] as String?,
-        sizeBytes: json['size_bytes'] as int?,
-        mediaDurationSeconds: (json['media_duration_seconds'] as num?)?.toDouble(),
-        text: json['text'] == null ? null : TextSlide.fromJson(json['text'] as Map<String, dynamic>),
-      );
+    itemId: json['item_id'] as String,
+    mediaId: json['media_id'] as String,
+    kind: MediaKind.values.byName(json['kind'] as String),
+    title: json['title'] as String? ?? '',
+    durationSeconds: json['duration_seconds'] as int? ?? 10,
+    videoFit: VideoFit.values.byName(json['video_fit'] as String? ?? 'loop'),
+    url: json['url'] as String?,
+    sha256: json['sha256'] as String?,
+    sizeBytes: json['size_bytes'] as int?,
+    mediaDurationSeconds: (json['media_duration_seconds'] as num?)?.toDouble(),
+    width: json['width'] as int?,
+    height: json['height'] as int?,
+    text: json['text'] == null
+        ? null
+        : TextSlide.fromJson(json['text'] as Map<String, dynamic>),
+  );
 
   Map<String, dynamic> toJson() => {
-        'item_id': itemId,
-        'media_id': mediaId,
-        'kind': kind.name,
-        'title': title,
-        'duration_seconds': durationSeconds,
-        'video_fit': videoFit.name,
-        'url': url,
-        'sha256': sha256,
-        'size_bytes': sizeBytes,
-        'media_duration_seconds': mediaDurationSeconds,
-        'text': text?.toJson(),
-      };
+    'item_id': itemId,
+    'media_id': mediaId,
+    'kind': kind.name,
+    'title': title,
+    'duration_seconds': durationSeconds,
+    'video_fit': videoFit.name,
+    'url': url,
+    'sha256': sha256,
+    'size_bytes': sizeBytes,
+    'media_duration_seconds': mediaDurationSeconds,
+    'width': width,
+    'height': height,
+    'text': text?.toJson(),
+  };
 }
 
 class Manifest {
-  const Manifest({required this.version, this.loopId, this.loopName, required this.items});
+  const Manifest({
+    required this.version,
+    this.loopId,
+    this.loopName,
+    required this.items,
+  });
 
   final String version;
   final String? loopId;
@@ -108,20 +129,20 @@ class Manifest {
   static const empty = Manifest(version: '', items: []);
 
   factory Manifest.fromJson(Map<String, dynamic> json) => Manifest(
-        version: json['version'] as String,
-        loopId: json['loop_id'] as String?,
-        loopName: json['loop_name'] as String?,
-        items: (json['items'] as List<dynamic>)
-            .map((e) => ManifestItem.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
+    version: json['version'] as String,
+    loopId: json['loop_id'] as String?,
+    loopName: json['loop_name'] as String?,
+    items: (json['items'] as List<dynamic>)
+        .map((e) => ManifestItem.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'version': version,
-        'loop_id': loopId,
-        'loop_name': loopName,
-        'items': items.map((e) => e.toJson()).toList(),
-      };
+    'version': version,
+    'loop_id': loopId,
+    'loop_name': loopName,
+    'items': items.map((e) => e.toJson()).toList(),
+  };
 }
 
 class PlayRecord {
@@ -142,20 +163,20 @@ class PlayRecord {
   final int durationMs;
 
   factory PlayRecord.fromJson(Map<String, dynamic> json) => PlayRecord(
-        id: json['id'] as String,
-        mediaId: json['media_id'] as String?,
-        mediaTitle: json['media_title'] as String?,
-        loopId: json['loop_id'] as String?,
-        startedAt: DateTime.parse(json['started_at'] as String),
-        durationMs: json['duration_ms'] as int,
-      );
+    id: json['id'] as String,
+    mediaId: json['media_id'] as String?,
+    mediaTitle: json['media_title'] as String?,
+    loopId: json['loop_id'] as String?,
+    startedAt: DateTime.parse(json['started_at'] as String),
+    durationMs: json['duration_ms'] as int,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'media_id': mediaId,
-        'media_title': mediaTitle,
-        'loop_id': loopId,
-        'started_at': startedAt.toUtc().toIso8601String(),
-        'duration_ms': durationMs,
-      };
+    'id': id,
+    'media_id': mediaId,
+    'media_title': mediaTitle,
+    'loop_id': loopId,
+    'started_at': startedAt.toUtc().toIso8601String(),
+    'duration_ms': durationMs,
+  };
 }

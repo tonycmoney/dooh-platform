@@ -13,40 +13,53 @@ Color parseHexColor(String hex, {Color fallback = Colors.white}) {
   return parsed == null ? fallback : Color(parsed);
 }
 
-/// Text slides are designed on a 1080-px-tall canvas (matching the dashboard
-/// preview) and scaled to this screen's height.
+/// Text slides are designed on a 1080 x 1920 portrait canvas (the same canvas
+/// the dashboard previews) and scaled to this screen's width, so a font size
+/// of 96 looks the same on every portrait screen.
 class TextSlideView extends StatelessWidget {
   const TextSlideView({super.key, required this.slide});
 
-  static const canvasHeight = 1080.0;
+  static const canvasWidth = 1080.0;
+  static const canvasHeight = 1920.0;
+  static const sidePadding = 90.0; // on the 1080-wide canvas
+  static const verticalPadding = 160.0;
 
   final TextSlide slide;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final scale = constraints.maxHeight / canvasHeight;
-      return Container(
-        color: parseHexColor(slide.backgroundColor, fallback: Colors.black),
-        padding: EdgeInsets.all(48 * scale),
-        alignment: Alignment.center,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: constraints.maxWidth - 96 * scale),
-            child: Text(
-              slide.text,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: parseHexColor(slide.textColor),
-                fontSize: slide.fontSize * scale,
-                fontWeight: FontWeight.w700,
-                height: 1.15,
+    return LayoutBuilder(
+      builder: (context, box) {
+        final scale = box.maxWidth / canvasWidth;
+        return Container(
+          color: parseHexColor(slide.backgroundColor, fallback: Colors.black),
+          padding: EdgeInsets.symmetric(
+            horizontal: sidePadding * scale,
+            vertical: verticalPadding * scale,
+          ),
+          alignment: Alignment.center,
+          // Text wraps to the slide width; if a long message still doesn't fit
+          // the height, it is scaled down rather than cut off.
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SizedBox(
+              width: box.maxWidth - 2 * sidePadding * scale,
+              child: Text(
+                slide.text,
+                textAlign: TextAlign.center,
+                softWrap: true,
+                style: TextStyle(
+                  color: parseHexColor(slide.textColor),
+                  fontSize: slide.fontSize * scale,
+                  fontWeight: FontWeight.w800,
+                  height: 1.12,
+                  letterSpacing: -0.01 * slide.fontSize * scale,
+                ),
               ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }

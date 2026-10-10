@@ -125,6 +125,8 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
             entry.sha256 = media.sha256
             entry.size_bytes = media.size_bytes
             entry.media_duration_seconds = media.duration_seconds
+            entry.width = media.width
+            entry.height = media.height
         items.append(entry)
 
     payload = json.dumps(

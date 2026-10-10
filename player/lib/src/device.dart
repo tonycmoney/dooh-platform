@@ -10,10 +10,12 @@ class DeviceBridge {
   static Future<bool> canStartFromBackground() async =>
       await _channel.invokeMethod<bool>('canStartFromBackground') ?? false;
 
-  static Future<void> openOverlaySettings() => _channel.invokeMethod('openOverlaySettings');
+  static Future<void> openOverlaySettings() =>
+      _channel.invokeMethod('openOverlaySettings');
 
   static Future<bool> isDefaultHome() async =>
       await _channel.invokeMethod<bool>('isDefaultHome') ?? false;
 
-  static Future<void> requestDefaultHome() => _channel.invokeMethod('requestDefaultHome');
+  static Future<void> requestDefaultHome() =>
+      _channel.invokeMethod('requestDefaultHome');
 }

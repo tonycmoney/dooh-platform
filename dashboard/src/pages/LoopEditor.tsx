@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { api, formatDuration, type Media, type Screen, type VideoFit } from '../api'
-import { KindTag, MediaThumb } from '../components'
+import { KindTag, LandscapeWarning, LoopPreview, MediaThumb } from '../components'
 
 const DEFAULT_SECONDS = 10
 
@@ -49,11 +49,11 @@ function SortableRow({ item, index, onChange, onRemove }: {
     >
       <button className="handle" {...attributes} {...listeners} aria-label="Drag to reorder">⋮⋮</button>
       <span className="pos">{index + 1}</span>
-      <MediaThumb media={m} height={54} />
+      <MediaThumb media={m} width={34} />
       <div className="loop-row-info">
         <strong>{m.title}</strong>
         <div className="muted">
-          <KindTag kind={m.kind} />
+          <KindTag kind={m.kind} /> <LandscapeWarning media={m} compact />
           {m.kind === 'video' && ` ${videoLength.toFixed(1)}s video`}
           {m.status !== 'approved' && <span className={`status status-${m.status}`}> {m.status}: won't play</span>}
         </div>
@@ -267,12 +267,14 @@ export default function LoopEditor() {
         </section>
 
         <aside>
+          <h2>Preview on a portrait screen</h2>
+          <LoopPreview items={items} width={220} />
           <h2>Library</h2>
           <input placeholder="Search media" value={search} onChange={(e) => setSearch(e.target.value)} />
           <ul className="library">
             {filteredLibrary.map((m) => (
               <li key={m.id}>
-                <MediaThumb media={m} height={40} />
+                <MediaThumb media={m} width={24} />
                 <span className="lib-title" title={m.title}>
                   {m.title}
                   {m.status === 'pending' && <span className="status status-pending"> pending</span>}

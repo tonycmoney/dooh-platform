@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 
 import '../controller.dart';
 import '../models.dart';
+import 'blur_fill.dart';
 import 'text_slide_view.dart';
 
 /// Plays the cached loop forever. Each item is shown for its set duration.
@@ -67,7 +68,11 @@ class _PlayerViewState extends State<PlayerView> {
     _timer?.cancel();
     final previous = _item;
     if (recordPrevious && previous != null) {
-      ctl.onItemFinished(previous, _startedAt, DateTime.now().difference(_startedAt));
+      ctl.onItemFinished(
+        previous,
+        _startedAt,
+        DateTime.now().difference(_startedAt),
+      );
     }
 
     final latest = ctl.cache.current.value;
@@ -121,7 +126,10 @@ class _PlayerViewState extends State<PlayerView> {
       // If everything is failing, don't spin: wait before trying again.
       final wait = _failuresInARow >= _manifest.items.length ? 5 : 0;
       _item = null;
-      _timer = Timer(Duration(seconds: wait), () => _advance(recordPrevious: false));
+      _timer = Timer(
+        Duration(seconds: wait),
+        () => _advance(recordPrevious: false),
+      );
       return;
     }
 
@@ -156,7 +164,13 @@ class _PlayerViewState extends State<PlayerView> {
       ctl.cache.fileFor(item),
       videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
     );
-    await controller.initialize().timeout(const Duration(seconds: 15));
+    try {
+      await controller.initialize().timeout(const Duration(seconds: 15));
+    } catch (_) {
+      // Release the hardware decoder, or later videos can't get one.
+      await controller.dispose();
+      rethrow;
+    }
     return controller;
   }
 
@@ -199,26 +213,45 @@ class _PlayerViewState extends State<PlayerView> {
         case MediaKind.text:
           child = TextSlideView(slide: item.text!);
         case MediaKind.image:
-          child = Image.file(
+          final image = Image.file(
             ctl.cache.fileFor(item),
-            fit: BoxFit.contain,
-            width: double.infinity,
-            height: double.infinity,
+            fit: BoxFit.fill,
             gaplessPlayback: true,
           );
+          final ratio = item.aspectRatio;
+          child = ratio == null
+              ? Image.file(
+                  ctl.cache.fileFor(item),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                )
+              : BlurFill(
+                  aspectRatio: ratio,
+                  background: Image.file(
+                    ctl.cache.fileFor(item),
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    gaplessPlayback: true,
+                  ),
+                  child: image,
+                );
         case MediaKind.video:
           final v = _video!;
-          child = Center(
-            child: AspectRatio(
-              aspectRatio: v.value.aspectRatio == 0 ? 16 / 9 : v.value.aspectRatio,
-              child: VideoPlayer(v),
-            ),
-          );
+          final ratio = v.value.aspectRatio > 0
+              ? v.value.aspectRatio
+              : (item.aspectRatio ?? 9 / 16);
+          child = BlurFill(aspectRatio: ratio, child: VideoPlayer(v));
       }
     }
     return ColoredBox(
       color: Colors.black,
-      child: SizedBox.expand(child: KeyedSubtree(key: ValueKey(item?.itemId ?? 'idle'), child: child)),
+      child: SizedBox.expand(
+        child: KeyedSubtree(
+          key: ValueKey(item?.itemId ?? 'idle'),
+          child: child,
+        ),
+      ),
     );
   }
 }
@@ -236,10 +269,16 @@ class _Idle extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(controller.store.screenName ?? 'Screen', style: const TextStyle(color: Colors.white70, fontSize: 28)),
+          Text(
+            controller.store.screenName ?? 'Screen',
+            style: const TextStyle(color: Colors.white70, fontSize: 28),
+          ),
           const SizedBox(height: 12),
           Text(
-            status ?? (hasLoop ? 'This loop has no approved content yet' : 'Paired. Waiting for a loop to be assigned…'),
+            status ??
+                (hasLoop
+                    ? 'This loop has no approved content yet'
+                    : 'Paired. Waiting for a loop to be assigned…'),
             style: const TextStyle(color: Colors.white38, fontSize: 18),
           ),
         ],

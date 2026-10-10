@@ -16,7 +16,7 @@
         android:usesCleartextTraffic="true">
 
         <!-- Android 16 ignores orientation locks on tablets for apps targeting
-             API 36 unless the app opts out; a signage player must stay landscape. -->
+             API 36 unless the app opts out; a portrait signage player must never rotate. -->
         <property
             android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
             android:value="true" />
@@ -26,7 +26,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="portrait"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/LaunchTheme"

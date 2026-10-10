@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import { UPLOAD_ACCEPT, api, formatBytes, uploadProblem, type ApprovalStatus, type Media, type TextSlideInput } from '../api'
-import { KindTag, MediaThumb, Modal, TextSlidePreview } from '../components'
+import { KindTag, LandscapeWarning, MediaThumb, Modal, TextSlidePreview } from '../components'
+import { RECOMMENDED_SIZE, isLandscape } from '../portrait'
 
 interface UploadJob {
   id: number
@@ -8,6 +9,7 @@ interface UploadJob {
   progress: number
   error?: string
   note?: string
+  warning?: string
 }
 
 /** Files dropped from apps like Photos sometimes arrive only as items. */
@@ -52,28 +54,32 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
   }
 
   return (
-    <Modal title={initial ? 'Edit text slide' : 'New text slide'} onClose={onClose}>
+    <Modal title={initial ? 'Edit text slide' : 'New text slide'} onClose={onClose} wide>
       <form className="slide-editor" onSubmit={submit}>
-        <TextSlidePreview
-          text={form.text}
-          fontSize={form.font_size}
-          textColor={form.text_color}
-          backgroundColor={form.background_color}
-          height={270}
-        />
+        <div className="slide-preview-col">
+          <TextSlidePreview
+            text={form.text}
+            fontSize={form.font_size}
+            textColor={form.text_color}
+            backgroundColor={form.background_color}
+            width={234}
+          />
+          <span className="muted small-text">Portrait screen preview (9:16)</span>
+        </div>
+        <div className="slide-fields">
         <label>
           Title (for your list)
           <input value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="e.g. Happy hour promo" />
         </label>
         <label>
           Text on screen
-          <textarea rows={3} value={form.text} onChange={(e) => set('text', e.target.value)} required />
+          <textarea rows={5} value={form.text} onChange={(e) => set('text', e.target.value)} required />
+        </label>
+        <label>
+          Font size: {form.font_size}
+          <input type="range" min={24} max={300} value={form.font_size} onChange={(e) => set('font_size', Number(e.target.value))} />
         </label>
         <div className="row">
-          <label>
-            Font size: {form.font_size}
-            <input type="range" min={24} max={300} value={form.font_size} onChange={(e) => set('font_size', Number(e.target.value))} />
-          </label>
           <label>
             Text color
             <input type="color" value={form.text_color} onChange={(e) => set('text_color', e.target.value.toUpperCase())} />
@@ -89,6 +95,7 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
           <button className="primary" disabled={busy || !form.text.trim()}>
             {busy ? 'Saving…' : 'Save slide'}
           </button>
+        </div>
         </div>
       </form>
     </Modal>
@@ -132,8 +139,15 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
       try {
         const media = await api.upload(file, (p) => updateJob(id, { progress: p }))
         load()
-        if (media.converted_from) {
-          updateJob(id, { note: `Uploaded and converted (${media.converted_from})` })
+        const note = media.converted_from ? `Uploaded and converted (${media.converted_from})` : 'Uploaded'
+        if (isLandscape(media)) {
+          // Stays until dismissed: the user may want to replace it.
+          updateJob(id, {
+            note,
+            warning: `Landscape (${media.width}×${media.height}): it will play centered with blurred bars. For a full-screen ad, use ${RECOMMENDED_SIZE} px portrait.`,
+          })
+        } else if (media.converted_from) {
+          updateJob(id, { note })
           setTimeout(() => dismissJob(id), 8000)
         } else {
           dismissJob(id)
@@ -208,7 +222,8 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
         onClick={() => fileInput.current?.click()}
       >
         Drop photos and videos here, or click to choose files
-        <small>JPG, PNG, HEIC, MP4 or MOV · HEIC becomes JPG and MOV becomes MP4 automatically</small>
+        <strong className="recommended">Recommended ad size: {RECOMMENDED_SIZE} px (portrait, 9:16)</strong>
+        <small>JPG, PNG, HEIC, MP4 or MOV · HEIC becomes JPG and MOV becomes MP4 automatically · landscape content shows with blurred bars</small>
       </div>
 
       {uploads.map((u) => (
@@ -217,6 +232,12 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
           {u.error ? (
             <>
               <span className="error">{u.error}</span>
+              <button className="link" onClick={() => dismissJob(u.id)}>Dismiss</button>
+            </>
+          ) : u.warning ? (
+            <>
+              <span className="ok-text">✓ {u.note}</span>
+              <span className="warn-inline">⚠ {u.warning}</span>
               <button className="link" onClick={() => dismissJob(u.id)}>Dismiss</button>
             </>
           ) : u.note ? (
@@ -249,7 +270,7 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
         <div className="media-grid">
           {shown.map((m) => (
             <div key={m.id} className="card media-card">
-              <MediaThumb media={m} height={135} />
+              <div className="card-frame"><MediaThumb media={m} width={135} /></div>
               <div className="media-meta">
                 <strong title={m.title}>{m.title}</strong>
                 <div className="muted">
@@ -258,7 +279,7 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
                   {formatBytes(m.size_bytes)}
                 </div>
                 <div className="muted">
-                  <span className={`status status-${m.status}`}>{m.status}</span>
+                  <span className={`status status-${m.status}`}>{m.status}</span> <LandscapeWarning media={m} compact />
                   {m.used_in_loops > 0 && ` · in ${m.used_in_loops} loop${m.used_in_loops > 1 ? 's' : ''}`}
                 </div>
               </div>

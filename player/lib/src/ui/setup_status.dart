@@ -47,8 +47,10 @@ class _SetupStatusState extends State<SetupStatus> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     if (_overlay == null) return const SizedBox.shrink();
     if (_overlay! && _home!) {
-      return const Text('✓ Auto-start and crash restart are set up',
-          style: TextStyle(color: Colors.greenAccent, fontSize: 16));
+      return const Text(
+        '✓ Auto-start and crash restart are set up',
+        style: TextStyle(color: Colors.greenAccent, fontSize: 16),
+      );
     }
     return Container(
       padding: const EdgeInsets.all(16),
@@ -60,8 +62,14 @@ class _SetupStatusState extends State<SetupStatus> with WidgetsBindingObserver {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('One-time setup for unattended use',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+          const Text(
+            'One-time setup for unattended use',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 8),
           _row(
             done: _overlay!,
@@ -80,16 +88,29 @@ class _SetupStatusState extends State<SetupStatus> with WidgetsBindingObserver {
     );
   }
 
-  Widget _row({required bool done, required String label, required String action, required VoidCallback onTap}) {
+  Widget _row({
+    required bool done,
+    required String label,
+    required String action,
+    required VoidCallback onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(done ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: done ? Colors.greenAccent : Colors.white54, size: 20),
+          Icon(
+            done ? Icons.check_circle : Icons.radio_button_unchecked,
+            color: done ? Colors.greenAccent : Colors.white54,
+            size: 20,
+          ),
           const SizedBox(width: 8),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 15),
+            ),
+          ),
           const SizedBox(width: 12),
           if (!done) OutlinedButton(onPressed: onTap, child: Text(action)),
         ],

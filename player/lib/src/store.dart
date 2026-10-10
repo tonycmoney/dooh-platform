@@ -4,7 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class Store {
   Store(this._prefs);
 
-  static Future<Store> open() async => Store(await SharedPreferences.getInstance());
+  static Future<Store> open() async =>
+      Store(await SharedPreferences.getInstance());
 
   final SharedPreferences _prefs;
 

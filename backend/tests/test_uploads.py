@@ -168,6 +168,25 @@ def test_odd_sized_video_is_reencoded_for_tablet_decoders(admin, samples):
     assert audio["sample_rate"] == "48000"
 
 
+def test_good_video_with_32k_audio_keeps_original_picture(admin, tmp_path):
+    src = tmp_path / "ad.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000", "-t", "1", "-c:v", "libx264",
+         "-pix_fmt", "yuv420p", "-c:a", "aac", str(src)],
+        check=True,
+    )
+    body = raw_upload(admin, "ad.mp4", src.read_bytes(), "video/mp4").json()
+    out = media_dir() / Path(body["url"]).name
+    audio = next(s for s in _probe(out)["streams"] if s["codec_type"] == "audio")
+    assert audio["sample_rate"] == "48000"
+    # Video bitstream copied, not re-encoded: identical packets.
+    def video_md5(path):
+        return subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0", "-c", "copy",
+                               "-f", "md5", "-"], capture_output=True, text=True, check=True).stdout
+    assert video_md5(out) == video_md5(src)
+
+
 def test_portrait_4k_stays_portrait_at_1080x1920(admin, samples):
     body = raw_upload(admin, "IMG_0002.MOV", samples["portrait_mov"], "video/quicktime").json()
     assert (body["width"], body["height"]) == (1080, 1920)

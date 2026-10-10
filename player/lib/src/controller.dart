@@ -16,7 +16,11 @@ enum Phase { starting, pairing, playing }
 /// Owns the tablet's lifecycle: pairing, then syncing content every minute,
 /// heartbeats every 60 s and proof-of-play uploads.
 class PlayerController extends ChangeNotifier {
-  PlayerController({required this.store, required this.cache, required this.playLog});
+  PlayerController({
+    required this.store,
+    required this.cache,
+    required this.playLog,
+  });
 
   final Store store;
   final ContentCache cache;
@@ -28,7 +32,10 @@ class PlayerController extends ChangeNotifier {
   static const playFlushInterval = Duration(seconds: 30);
   static const pairingPollInterval = Duration(seconds: 3);
 
-  late final PlayerApi api = PlayerApi(baseUrl: store.serverUrl, token: store.token);
+  late final PlayerApi api = PlayerApi(
+    baseUrl: store.serverUrl,
+    token: store.token,
+  );
 
   Phase phase = Phase.starting;
   String deviceUid = '';
@@ -137,14 +144,18 @@ class PlayerController extends ChangeNotifier {
         'app_version': appVersion,
         'now_playing_media_id': nowPlaying?.mediaId,
         'now_playing_title': nowPlaying?.title,
-        'manifest_version': cache.current.value.version.isEmpty ? null : cache.current.value.version,
+        'manifest_version': cache.current.value.version.isEmpty
+            ? null
+            : cache.current.value.version,
       };
       final result = await api.heartbeat(body);
       _contactOk();
       store.screenName = result.name;
       store.venueName = result.venueName;
       // Loop changed on the dashboard: fetch it now instead of waiting.
-      if (result.manifestVersion != cache.current.value.version) unawaited(_syncTick());
+      if (result.manifestVersion != cache.current.value.version) {
+        unawaited(_syncTick());
+      }
     } catch (e) {
       _handleError(e);
     }
@@ -166,7 +177,12 @@ class PlayerController extends ChangeNotifier {
   }
 
   void onItemFinished(ManifestItem item, DateTime startedAt, Duration played) {
-    playLog.record(item: item, loopId: cache.current.value.loopId, startedAt: startedAt, played: played);
+    playLog.record(
+      item: item,
+      loopId: cache.current.value.loopId,
+      startedAt: startedAt,
+      played: played,
+    );
   }
 
   void _contactOk() {

@@ -76,6 +76,8 @@ class ManifestItem(BaseModel):
     sha256: str | None = None
     size_bytes: int | None = None
     media_duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
     text: TextSlideProps | None = None
 
 

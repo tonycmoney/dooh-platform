@@ -19,7 +19,8 @@ class Telemetry {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      return permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+      return permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
     } catch (e) {
       debugPrint('Location permission check failed: $e');
       return false;
@@ -27,11 +28,14 @@ class Telemetry {
   }
 
   Future<Position?> _position() async {
-    final fresh = _lastFix != null && DateTime.now().difference(_lastFix!) < _locationRefresh;
+    final fresh =
+        _lastFix != null &&
+        DateTime.now().difference(_lastFix!) < _locationRefresh;
     if (fresh) return _lastPosition;
     try {
       final permission = await Geolocator.checkPermission();
-      if (permission != LocationPermission.always && permission != LocationPermission.whileInUse) {
+      if (permission != LocationPermission.always &&
+          permission != LocationPermission.whileInUse) {
         return _lastPosition;
       }
       if (!await Geolocator.isLocationServiceEnabled()) return _lastPosition;

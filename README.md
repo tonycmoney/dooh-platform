@@ -6,7 +6,7 @@ It has three parts:
 
 - **backend/**: FastAPI + PostgreSQL. Handles device pairing, media and text slides, loops, the player manifest, heartbeats, idempotent proof of play and an approval queue.
 - **dashboard/**: React (Vite + TypeScript) control panel that runs on the Mac.
-- **player/**: Flutter Android app for the screens (tested on a KB10 tablet running Android 16).
+- **player/**: Flutter Android app for the screens, locked to portrait (tested on a KB10 tablet running Android 16). Recommended ad size: **1080 × 1920 px**.
 
 ## Requirements
 

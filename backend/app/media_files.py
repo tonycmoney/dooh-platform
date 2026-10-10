@@ -166,6 +166,19 @@ def _is_hdr(stream: dict) -> bool:
     return stream.get("color_transfer") in ("smpte2084", "arib-std-b67")
 
 
+def _video_track_ready(stream: dict) -> bool:
+    w, h = stream.get("width") or 0, stream.get("height") or 0
+    return (
+        stream.get("codec_name") == "h264"
+        and stream.get("pix_fmt") in ("yuv420p", "yuvj420p")
+        and not _is_hdr(stream)
+        and max(w, h) <= MAX_VIDEO_LONG
+        and min(w, h) <= MAX_VIDEO_SHORT
+        and _decoder_friendly(w)
+        and _decoder_friendly(h)
+    )
+
+
 def _is_screen_ready(path: Path, info: dict) -> bool:
     """H.264 8-bit 4:2:0 SDR in MP4, within 1080x1920 either way round, with
     decoder-friendly dimensions and a standard audio sample rate."""
@@ -177,13 +190,7 @@ def _is_screen_ready(path: Path, info: dict) -> bool:
     return (
         path.suffix.lower() == ".mp4"
         and "mp4" in info.get("format", {}).get("format_name", "")
-        and stream.get("codec_name") == "h264"
-        and stream.get("pix_fmt") in ("yuv420p", "yuvj420p")
-        and not _is_hdr(stream)
-        and max(w, h) <= MAX_VIDEO_LONG
-        and min(w, h) <= MAX_VIDEO_SHORT
-        and _decoder_friendly(w)
-        and _decoder_friendly(h)
+        and _video_track_ready(stream)
         and all(int(a.get("sample_rate") or 0) in SAFE_AUDIO_RATES and a.get("codec_name") == "aac" for a in audio)
     )
 
@@ -214,13 +221,18 @@ def _avconvert(source: Path, original_name: str) -> Path | None:
 
 
 def _ffmpeg_encode(source: Path, info: dict, original_name: str) -> Path:
-    w, h = _display_size(_video_stream(info) or {})
-    tw, th = _target_size(w, h)
+    stream = _video_stream(info) or {}
     target = source.with_name(f"{source.stem}.ff.mp4")
+    if _video_track_ready(stream) and _display_size(stream) == (stream.get("width"), stream.get("height")):
+        # Picture is already fine (e.g. only the audio rate or container is
+        # off): copy the video untouched so it keeps its original quality.
+        video_args = ["-c:v", "copy"]
+    else:
+        tw, th = _target_size(*_display_size(stream))
+        video_args = ["-vf", f"scale={tw}:{th}:flags=lanczos,setsar=1,format=yuv420p",
+                      "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "medium", "-crf", "20"]
     cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
-           "-vf", f"scale={tw}:{th}:flags=lanczos,setsar=1,format=yuv420p",
-           "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "medium", "-crf", "20",
-           "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart",
+           *video_args, "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart",
            "-map_metadata", "-1", str(target)]
     try:
         result = _run(cmd, CONVERT_TIMEOUT)

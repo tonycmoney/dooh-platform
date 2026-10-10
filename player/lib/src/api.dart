@@ -40,7 +40,7 @@ class HeartbeatResult {
 /// Talks to the FastAPI backend's /api/player endpoints.
 class PlayerApi {
   PlayerApi({required this.baseUrl, this.token, http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   String baseUrl;
   String? token;
@@ -48,20 +48,25 @@ class PlayerApi {
 
   static const _timeout = Duration(seconds: 20);
 
-  Uri uri(String path) => Uri.parse(baseUrl.replaceAll(RegExp(r'/+$'), '') + path);
+  Uri uri(String path) =>
+      Uri.parse(baseUrl.replaceAll(RegExp(r'/+$'), '') + path);
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   Future<Map<String, dynamic>> _post(String path, Object body) async {
-    final res = await _client.post(uri(path), headers: _headers, body: jsonEncode(body)).timeout(_timeout);
+    final res = await _client
+        .post(uri(path), headers: _headers, body: jsonEncode(body))
+        .timeout(_timeout);
     return _decode(res);
   }
 
   Future<Map<String, dynamic>> _get(String path) async {
-    final res = await _client.get(uri(path), headers: _headers).timeout(_timeout);
+    final res = await _client
+        .get(uri(path), headers: _headers)
+        .timeout(_timeout);
     return _decode(res);
   }
 
@@ -69,7 +74,10 @@ class PlayerApi {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       var message = res.reasonPhrase ?? 'HTTP ${res.statusCode}';
       try {
-        message = (jsonDecode(res.body) as Map<String, dynamic>)['detail']?.toString() ?? message;
+        message =
+            (jsonDecode(res.body) as Map<String, dynamic>)['detail']
+                ?.toString() ??
+            message;
       } catch (_) {}
       throw ApiException(res.statusCode, message);
     }
@@ -77,12 +85,24 @@ class PlayerApi {
   }
 
   Future<RegisterResult> register(String deviceUid, String appVersion) async {
-    final json = await _post('/api/player/register', {'device_uid': deviceUid, 'app_version': appVersion});
-    return RegisterResult(json['pairing_code'] as String, json['claim_secret'] as String);
+    final json = await _post('/api/player/register', {
+      'device_uid': deviceUid,
+      'app_version': appVersion,
+    });
+    return RegisterResult(
+      json['pairing_code'] as String,
+      json['claim_secret'] as String,
+    );
   }
 
-  Future<PairingStatus> pairingStatus(String deviceUid, String claimSecret) async {
-    final json = await _post('/api/player/pairing-status', {'device_uid': deviceUid, 'claim_secret': claimSecret});
+  Future<PairingStatus> pairingStatus(
+    String deviceUid,
+    String claimSecret,
+  ) async {
+    final json = await _post('/api/player/pairing-status', {
+      'device_uid': deviceUid,
+      'claim_secret': claimSecret,
+    });
     return PairingStatus(
       paired: json['paired'] as bool,
       token: json['token'] as String?,
@@ -91,7 +111,8 @@ class PlayerApi {
     );
   }
 
-  Future<Manifest> manifest() async => Manifest.fromJson(await _get('/api/player/manifest'));
+  Future<Manifest> manifest() async =>
+      Manifest.fromJson(await _get('/api/player/manifest'));
 
   Future<HeartbeatResult> heartbeat(Map<String, Object?> body) async {
     final json = await _post('/api/player/heartbeat', body);
@@ -104,7 +125,9 @@ class PlayerApi {
 
   /// Returns the ids the server has stored (new or already known).
   Future<Set<String>> sendPlays(List<PlayRecord> plays) async {
-    final json = await _post('/api/player/plays', {'plays': plays.map((p) => p.toJson()).toList()});
+    final json = await _post('/api/player/plays', {
+      'plays': plays.map((p) => p.toJson()).toList(),
+    });
     return (json['accepted'] as List<dynamic>).cast<String>().toSet();
   }
 

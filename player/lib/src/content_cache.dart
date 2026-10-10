@@ -30,15 +30,32 @@ class ContentCache {
   Directory get _mediaDir => Directory('${_root.path}/media');
   File get _manifestFile => File('${_root.path}/manifest.json');
 
-  File fileFor(ManifestItem item) => File('${_mediaDir.path}/${item.cacheFileName}');
+  File fileFor(ManifestItem item) =>
+      File('${_mediaDir.path}/${item.cacheFileName}');
 
   bool _isComplete(Manifest m) =>
       m.items.where((i) => i.hasFile).every((i) => fileFor(i).existsSync());
 
+  /// Bump when the player starts reading new manifest fields. A manifest
+  /// saved by an older build may lack them, so it is used for playback but
+  /// refreshed on the next sync even if the server's version is unchanged.
+  static const _savedFormat = 2;
+
   Future<void> _loadSaved() async {
     try {
       if (!await _manifestFile.exists()) return;
-      final saved = Manifest.fromJson(jsonDecode(await _manifestFile.readAsString()) as Map<String, dynamic>);
+      final json = jsonDecode(
+        await _manifestFile.readAsString(),
+      ) as Map<String, dynamic>;
+      var saved = Manifest.fromJson(json);
+      if (json['player_format'] != _savedFormat) {
+        saved = Manifest(
+          version: '', // forces a re-fetch; cached files are reused by hash
+          loopId: saved.loopId,
+          loopName: saved.loopName,
+          items: saved.items,
+        );
+      }
       if (_isComplete(saved)) current.value = saved;
     } catch (e) {
       debugPrint('Ignoring unreadable saved manifest: $e');
@@ -59,18 +76,24 @@ class ContentCache {
     _syncing = true;
     try {
       final next = await api.manifest();
-      if (next.version == current.value.version && _isComplete(current.value)) return false;
+      if (next.version == current.value.version && _isComplete(current.value)) {
+        return false;
+      }
 
       final files = next.items.where((i) => i.hasFile).toList();
       final seen = <String>{};
       var done = 0;
       for (final item in files) {
         if (!seen.add(item.cacheFileName!)) continue;
-        status.value = 'Downloading ${++done} of ${files.length}: ${item.title}';
+        status.value =
+            'Downloading ${++done} of ${files.length}: ${item.title}';
         await _ensureDownloaded(api, item);
       }
 
-      await _manifestFile.writeAsString(jsonEncode(next.toJson()), flush: true);
+      await _manifestFile.writeAsString(
+        jsonEncode({...next.toJson(), 'player_format': _savedFormat}),
+        flush: true,
+      );
       current.value = next;
       status.value = null;
       await _cleanup(next);
@@ -105,7 +128,10 @@ class ContentCache {
   }
 
   Future<void> _cleanup(Manifest keep) async {
-    final wanted = keep.items.map((i) => i.cacheFileName).whereType<String>().toSet();
+    final wanted = keep.items
+        .map((i) => i.cacheFileName)
+        .whereType<String>()
+        .toSet();
     await for (final entity in _mediaDir.list()) {
       final name = entity.uri.pathSegments.last;
       if (entity is File && !wanted.contains(name)) {

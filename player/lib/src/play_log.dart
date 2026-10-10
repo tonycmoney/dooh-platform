@@ -36,7 +36,9 @@ class PlayLog {
     try {
       if (await _file.exists()) {
         final list = jsonDecode(await _file.readAsString()) as List<dynamic>;
-        _pending.addAll(list.map((e) => PlayRecord.fromJson(e as Map<String, dynamic>)));
+        _pending.addAll(
+          list.map((e) => PlayRecord.fromJson(e as Map<String, dynamic>)),
+        );
       }
     } catch (e) {
       debugPrint('Discarding unreadable play queue: $e');
@@ -45,11 +47,13 @@ class PlayLog {
 
   Future<void> _persist() {
     final snapshot = jsonEncode(_pending.map((p) => p.toJson()).toList());
-    _writeChain = _writeChain.then((_) async {
-      final tmp = File('${_file.path}.tmp');
-      await tmp.writeAsString(snapshot, flush: true);
-      await tmp.rename(_file.path);
-    }).catchError((Object e) => debugPrint('Could not save play queue: $e'));
+    _writeChain = _writeChain
+        .then((_) async {
+          final tmp = File('${_file.path}.tmp');
+          await tmp.writeAsString(snapshot, flush: true);
+          await tmp.rename(_file.path);
+        })
+        .catchError((Object e) => debugPrint('Could not save play queue: $e'));
     return _writeChain;
   }
 
@@ -59,14 +63,16 @@ class PlayLog {
     required DateTime startedAt,
     required Duration played,
   }) {
-    _pending.add(PlayRecord(
-      id: _uuid.v4(),
-      mediaId: item.mediaId,
-      mediaTitle: item.title,
-      loopId: loopId,
-      startedAt: startedAt,
-      durationMs: played.inMilliseconds,
-    ));
+    _pending.add(
+      PlayRecord(
+        id: _uuid.v4(),
+        mediaId: item.mediaId,
+        mediaTitle: item.title,
+        loopId: loopId,
+        startedAt: startedAt,
+        durationMs: played.inMilliseconds,
+      ),
+    );
     if (_pending.length > _maxQueued) {
       _pending.removeRange(0, _pending.length - _maxQueued); // drop oldest
     }

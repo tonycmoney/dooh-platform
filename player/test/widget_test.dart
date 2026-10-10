@@ -1,4 +1,5 @@
 import 'package:dooh_player/src/models.dart';
+import 'package:dooh_player/src/ui/blur_fill.dart';
 import 'package:dooh_player/src/ui/text_slide_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,14 +12,31 @@ void main() {
       'loop_name': 'Main',
       'items': [
         {
-          'item_id': 'i1', 'media_id': 'm1', 'kind': 'video', 'title': 'Clip',
-          'duration_seconds': 10, 'video_fit': 'cut', 'url': '/files/abc.mp4',
-          'sha256': 'deadbeef', 'size_bytes': 5, 'media_duration_seconds': 4.5, 'text': null,
+          'item_id': 'i1',
+          'media_id': 'm1',
+          'kind': 'video',
+          'title': 'Clip',
+          'duration_seconds': 10,
+          'video_fit': 'cut',
+          'url': '/files/abc.mp4',
+          'sha256': 'deadbeef',
+          'size_bytes': 5,
+          'media_duration_seconds': 4.5,
+          'text': null,
         },
         {
-          'item_id': 'i2', 'media_id': 'm2', 'kind': 'text', 'title': 'Promo',
-          'duration_seconds': 10, 'video_fit': 'loop',
-          'text': {'text': 'Hi', 'font_size': 120, 'text_color': '#FFFF00', 'background_color': '#000080'},
+          'item_id': 'i2',
+          'media_id': 'm2',
+          'kind': 'text',
+          'title': 'Promo',
+          'duration_seconds': 10,
+          'video_fit': 'loop',
+          'text': {
+            'text': 'Hi',
+            'font_size': 120,
+            'text_color': '#FFFF00',
+            'background_color': '#000080',
+          },
         },
       ],
     });
@@ -35,14 +53,49 @@ void main() {
     expect(parseHexColor('nope', fallback: Colors.black), Colors.black);
   });
 
-  testWidgets('text slide scales font to screen height', (tester) async {
-    tester.view.physicalSize = const Size(1280, 800);
+  testWidgets('text slide scales font to portrait screen width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1280);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const MaterialApp(
-      home: TextSlideView(slide: TextSlide(text: 'Sale', fontSize: 108, textColor: '#FFFFFF', backgroundColor: '#000000')),
-    ));
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: TextSlideView(
+          slide: TextSlide(
+            text: 'Sale',
+            fontSize: 108,
+            textColor: '#FFFFFF',
+            backgroundColor: '#000000',
+          ),
+        ),
+      ),
+    );
     final text = tester.widget<Text>(find.text('Sale'));
-    expect(text.style!.fontSize, closeTo(108 * 800 / 1080, 0.01));
+    expect(
+      text.style!.fontSize,
+      closeTo(108 * 800 / 1080, 0.01),
+    ); // 1080-wide canvas
   });
+
+  testWidgets(
+    'landscape content is centered over blurred bars, portrait fills',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1280);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const box = ColoredBox(color: Colors.red);
+
+      await tester.pumpWidget(const BlurFill(aspectRatio: 16 / 9, child: box));
+      expect(find.byType(ImageFiltered), findsOneWidget);
+      final fg = tester.getSize(find.byType(AspectRatio));
+      expect(fg.width, 800);
+      expect(fg.height, closeTo(450, 0.5)); // not stretched, not cropped
+
+      await tester.pumpWidget(
+        const BlurFill(aspectRatio: 800 / 1280, child: box),
+      );
+      expect(find.byType(ImageFiltered), findsNothing);
+    },
+  );
 }

@@ -19,10 +19,8 @@ Future<void> main() async {
     FlutterError.onError = (details) => FlutterError.presentError(details);
     ErrorWidget.builder = (_) => const ColoredBox(color: Colors.black);
 
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // Portrait only; never rotates, even if the tablet is turned.
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     final controller = PlayerController(
@@ -45,8 +43,16 @@ class PlayerApp extends StatelessWidget {
     return MaterialApp(
       title: 'DOOH Player',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark)),
-      home: Scaffold(backgroundColor: Colors.black, body: _Root(controller: controller)),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: Scaffold(
+        backgroundColor: Colors.black,
+        body: _Root(controller: controller),
+      ),
     );
   }
 }
@@ -88,7 +94,10 @@ class _RootState extends State<_Root> {
           final c = widget.controller;
           final Widget body = switch (c.phase) {
             Phase.starting => const ColoredBox(color: Colors.black),
-            Phase.pairing => PairingScreen(controller: c, onOpenSettings: () => setState(() => _settingsOpen = true)),
+            Phase.pairing => PairingScreen(
+              controller: c,
+              onOpenSettings: () => setState(() => _settingsOpen = true),
+            ),
             Phase.playing => PlayerView(controller: c),
           };
           return Stack(
@@ -101,7 +110,10 @@ class _RootState extends State<_Root> {
                   top: 0,
                   width: 120,
                   height: 120,
-                  child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: _onCornerTap),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _onCornerTap,
+                  ),
                 ),
               if (c.phase == Phase.playing && c.lastError != null)
                 const Positioned(
@@ -109,7 +121,11 @@ class _RootState extends State<_Root> {
                   bottom: 10,
                   child: Icon(Icons.cloud_off, color: Colors.white24, size: 18),
                 ),
-              if (_settingsOpen) SettingsPanel(controller: c, onClose: () => setState(() => _settingsOpen = false)),
+              if (_settingsOpen)
+                SettingsPanel(
+                  controller: c,
+                  onClose: () => setState(() => _settingsOpen = false),
+                ),
             ],
           );
         },
