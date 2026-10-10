@@ -2,19 +2,33 @@
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from .. import schemas, services
 from ..db import get_db
-from ..media_files import delete_files, store_upload
+from ..media_files import (
+    SUPPORTED_LABEL,
+    bad_request,
+    delete_files,
+    incoming_dir,
+    kind_for,
+    process_upload,
+)
 from ..models import ApprovalStatus, Device, Loop, LoopItem, Media, MediaKind, PlayLog
 from ..security import check_admin_password, create_admin_token, new_secret, require_admin, sha256_hex
 
 public = APIRouter(prefix="/api/admin", tags=["admin"])
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+MAX_UPLOAD_BYTES = 4 * 2**30
 
 
 def _not_found(what: str) -> HTTPException:
@@ -68,20 +82,74 @@ def list_media(
     return [services.media_out(m, usage.get(m.id, 0)) for m in db.scalars(query)]
 
 
+async def _receive_upload(request: Request) -> tuple[Path, str, str | None]:
+    """Accepts either a raw body (Content-Type = file type, X-Filename header,
+    used by the dashboard) or multipart/form-data with the file in any field
+    (`file` preferred). Returns (saved path, original filename, title)."""
+    def incoming_path(name: str) -> Path:
+        # Keep the extension: converters pick the reader from it.
+        return incoming_dir() / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
+
+    content_type = request.headers.get("content-type", "")
+    title = None
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form(max_files=1, max_fields=10)
+        uploads = [v for _, v in form.multi_items() if isinstance(v, StarletteUploadFile)]
+        upload = next((v for k, v in form.multi_items() if k == "file" and isinstance(v, StarletteUploadFile)), None)
+        upload = upload or (uploads[0] if uploads else None)
+        if upload is None:
+            fields = ", ".join(sorted(form.keys())) or "none"
+            raise bad_request(
+                f"No file was received (form fields: {fields}). Choose the file again, "
+                f"or export it from Photos first. Supported: {SUPPORTED_LABEL}."
+            )
+        filename = upload.filename or ""
+        kind_for(filename)  # reject unsupported types before saving anything
+        title = form.get("title") if isinstance(form.get("title"), str) else None
+        incoming = incoming_path(filename)
+        with incoming.open("wb") as out:
+            while chunk := await upload.read(1024 * 1024):
+                out.write(chunk)
+        await upload.close()
+    else:
+        filename = unquote(request.headers.get("x-filename", "")).strip()
+        if not filename:
+            raise bad_request("Missing file name (X-Filename header).")
+        kind_for(filename)
+        title = unquote(request.headers.get("x-title", "")).strip() or None
+        incoming = incoming_path(filename)
+        size = 0
+        with incoming.open("wb") as out:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    out.close()
+                    incoming.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status.HTTP_413_CONTENT_TOO_LARGE,
+                        f"“{filename}” is larger than {MAX_UPLOAD_BYTES // 2**30} GB.",
+                    )
+                out.write(chunk)
+    return incoming, Path(filename).name, title
+
+
 @router.post("/media", response_model=schemas.MediaOut, status_code=201)
-async def upload_media(
-    file: UploadFile = File(...),
-    title: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-):
-    stored = await store_upload(file)
-    default_title = (file.filename or "Untitled").rsplit(".", 1)[0]
+async def upload_media(request: Request, db: Session = Depends(get_db)):
+    """Upload an image (JPG, PNG, HEIC) or video (MP4, MOV). HEIC becomes JPG
+    and MOV/HDR/4K video becomes H.264 MP4 before it is stored."""
+    incoming, filename, title = await _receive_upload(request)
+    try:
+        stored = await run_in_threadpool(process_upload, incoming, filename)
+    finally:
+        incoming.unlink(missing_ok=True)
+    default_title = filename.rsplit(".", 1)[0] or "Untitled"
     media = Media(
         kind=stored.kind,
         title=(title or default_title).strip()[:300] or "Untitled",
         status=_initial_status(db),
         filename=stored.filename,
-        original_name=file.filename,
+        original_name=filename,
         mime_type=stored.mime_type,
         size_bytes=stored.size_bytes,
         sha256=stored.sha256,
@@ -92,7 +160,9 @@ async def upload_media(
     )
     db.add(media)
     db.commit()
-    return services.media_out(media)
+    out = services.media_out(media)
+    out.converted_from = stored.converted_from
+    return out
 
 
 @router.post("/text-slides", response_model=schemas.MediaOut, status_code=201)

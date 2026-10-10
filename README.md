@@ -11,7 +11,7 @@ A self-hosted digital screen ad network:
 Install the tools once:
 
 ```sh
-brew install postgresql@17 uv node ffmpeg
+brew install postgresql@17 uv node ffmpeg   # ffmpeg probes and converts video
 cp backend/.env.example backend/.env   # then set ADMIN_PASSWORD and SECRET_KEY
 createdb dooh
 (cd dashboard && npm install)
@@ -57,6 +57,7 @@ To get back into tablet settings after that, tap the **top-left corner 5 times**
 | Proof of play | Each play gets a UUID on the tablet and is queued on disk. `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
 | Kiosk mode | Fullscreen landscape, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
 | Crash restart | `PlayerApplication.kt` catches crashes and relaunches the app through a separate restarter process, with an alarm as backup |
+| Uploads from Photos | Accepts JPG, PNG, HEIC, MP4 and MOV. HEIC becomes JPG, with the camera's rotation applied and GPS metadata removed. MOV, HEVC, HDR and 4K video becomes 1080p H.264 MP4, using macOS `avconvert` or ffmpeg. The dashboard sends the raw file bytes with an `X-Filename` header; multipart uploads with any field name also work. |
 | Approval queue | Only approved media is sent to screens. "Auto-approve my uploads" (on the Media page) controls whether new uploads skip the queue. |
 
 Item timing: each loop item plays for its set seconds (default 10). A video either **loops** to fill that time, or plays **once and is cut** at that time (or ends when the video does, if that comes first).

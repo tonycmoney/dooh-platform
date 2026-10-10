@@ -11,6 +11,8 @@ dependencies = [
     "alembic>=1.13",
     "pydantic-settings>=2.4",
     "python-multipart>=0.0.9",
+    "pillow>=12.3.0",
+    "pillow-heif>=1.8.0",
 ]
 
 [dependency-groups]

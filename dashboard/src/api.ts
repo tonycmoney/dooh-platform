@@ -20,6 +20,7 @@ export interface Media {
   background_color: string | null
   created_at: string
   used_in_loops: number
+  converted_from?: string | null
 }
 
 export interface TextSlideInput {
@@ -151,14 +152,44 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return res.status === 204 ? (undefined as T) : res.json()
 }
 
-/** Multipart upload with progress (fetch has no upload progress). */
+export const UPLOAD_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.mp4', '.mov']
+export const UPLOAD_ACCEPT = [
+  ...UPLOAD_EXTENSIONS,
+  'image/jpeg',
+  'image/png',
+  'image/heic',
+  'image/heif',
+  'video/mp4',
+  'video/quicktime',
+].join(',')
+
+/** Returns a user-facing reason if this file can't be uploaded, else null. */
+export function uploadProblem(file: File): string | null {
+  const dot = file.name.lastIndexOf('.')
+  const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : ''
+  if (!UPLOAD_EXTENSIONS.includes(ext)) {
+    const type = ext ? ext.slice(1).toUpperCase() : 'This file type'
+    return `${type} isn't supported. Upload JPG, PNG, HEIC, MP4 or MOV.`
+  }
+  if (file.size === 0) {
+    return "The file is empty. If it's in iCloud, open it in Photos to download it first, or use File → Export."
+  }
+  return null
+}
+
+/** Uploads the file as the raw request body (no multipart form), with
+ * progress. The server converts HEIC → JPG and MOV → MP4, which happens after
+ * the bytes are sent, so onProgress reports 1 and then the promise waits. */
 function upload(file: File, onProgress: (fraction: number) => void): Promise<Media> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/admin/media')
     const token = getToken()
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name))
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total)
+    xhr.upload.onload = () => onProgress(1)
     xhr.onload = () => {
       let data: unknown = null
       try {
@@ -172,10 +203,8 @@ function upload(file: File, onProgress: (fraction: number) => void): Promise<Med
         reject(new ApiError(xhr.status, errorMessage(data, `Upload failed (${xhr.status})`)))
       }
     }
-    xhr.onerror = () => reject(new ApiError(0, 'Network error during upload'))
-    const form = new FormData()
-    form.append('file', file)
-    xhr.send(form)
+    xhr.onerror = () => reject(new ApiError(0, 'Network error during upload. Is the server running?'))
+    xhr.send(file)
   })
 }
 

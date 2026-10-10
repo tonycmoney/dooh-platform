@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
-import { api, formatBytes, type ApprovalStatus, type Media, type TextSlideInput } from '../api'
+import { UPLOAD_ACCEPT, api, formatBytes, uploadProblem, type ApprovalStatus, type Media, type TextSlideInput } from '../api'
 import { KindTag, MediaThumb, Modal, TextSlidePreview } from '../components'
 
 interface UploadJob {
@@ -7,9 +7,17 @@ interface UploadJob {
   name: string
   progress: number
   error?: string
+  note?: string
 }
 
-const ACCEPT = '.mp4,.jpg,.jpeg,.png,video/mp4,image/jpeg,image/png'
+/** Files dropped from apps like Photos sometimes arrive only as items. */
+function droppedFiles(data: DataTransfer): File[] {
+  if (data.files.length) return Array.from(data.files)
+  return Array.from(data.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((f): f is File => f !== null)
+}
 const FILTERS: (ApprovalStatus | 'all')[] = ['all', 'pending', 'approved', 'rejected']
 
 export function TextSlideEditor({ initial, onSaved, onClose }: {
@@ -108,16 +116,30 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
     api.getSettings().then((s) => setAutoApprove(s.auto_approve)).catch(() => {})
   }, [load])
 
-  async function uploadFiles(files: FileList | File[]) {
-    for (const file of Array.from(files)) {
-      const id = ++jobId.current
-      setUploads((u) => [...u, { id, name: file.name, progress: 0 }])
+  const updateJob = (id: number, patch: Partial<UploadJob>) =>
+    setUploads((u) => u.map((j) => (j.id === id ? { ...j, ...patch } : j)))
+  const dismissJob = (id: number) => setUploads((u) => u.filter((j) => j.id !== id))
+
+  async function uploadFiles(files: File[]) {
+    // Queue every file up front so unsupported ones are reported immediately.
+    const jobs = files.map((file) => ({ file, id: ++jobId.current, problem: uploadProblem(file) }))
+    setUploads((u) => [
+      ...u,
+      ...jobs.map(({ file, id, problem }) => ({ id, name: file.name, progress: 0, error: problem ?? undefined })),
+    ])
+    for (const { file, id, problem } of jobs) {
+      if (problem) continue
       try {
-        await api.upload(file, (p) => setUploads((u) => u.map((j) => (j.id === id ? { ...j, progress: p } : j))))
-        setUploads((u) => u.filter((j) => j.id !== id))
+        const media = await api.upload(file, (p) => updateJob(id, { progress: p }))
         load()
+        if (media.converted_from) {
+          updateJob(id, { note: `Uploaded and converted (${media.converted_from})` })
+          setTimeout(() => dismissJob(id), 8000)
+        } else {
+          dismissJob(id)
+        }
       } catch (err) {
-        setUploads((u) => u.map((j) => (j.id === id ? { ...j, error: (err as Error).message } : j)))
+        updateJob(id, { error: (err as Error).message })
       }
     }
   }
@@ -125,7 +147,9 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
   function onDrop(e: DragEvent) {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files)
+    const files = droppedFiles(e.dataTransfer)
+    if (files.length) uploadFiles(files)
+    else setError("Couldn't read the dropped items. In Photos, use File → Export, or click Upload files.")
   }
 
   async function act(fn: () => Promise<unknown>) {
@@ -166,8 +190,8 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
           </label>
           <button onClick={() => setEditing('new')}>+ Text slide</button>
           <button className="primary" onClick={() => fileInput.current?.click()}>Upload files</button>
-          <input ref={fileInput} type="file" accept={ACCEPT} multiple hidden onChange={(e) => {
-            if (e.target.files) uploadFiles(e.target.files)
+          <input ref={fileInput} type="file" accept={UPLOAD_ACCEPT} multiple hidden onChange={(e) => {
+            if (e.target.files) uploadFiles(Array.from(e.target.files))
             e.target.value = ''
           }} />
         </div>
@@ -183,8 +207,8 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
         onDrop={onDrop}
         onClick={() => fileInput.current?.click()}
       >
-        Drop MP4 videos or JPG/PNG images here, or click to choose files
-        <small>Videos must be H.264 or H.265 MP4</small>
+        Drop photos and videos here, or click to choose files
+        <small>JPG, PNG, HEIC, MP4 or MOV · HEIC becomes JPG and MOV becomes MP4 automatically</small>
       </div>
 
       {uploads.map((u) => (
@@ -193,10 +217,17 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
           {u.error ? (
             <>
               <span className="error">{u.error}</span>
-              <button className="link" onClick={() => setUploads((x) => x.filter((j) => j.id !== u.id))}>Dismiss</button>
+              <button className="link" onClick={() => dismissJob(u.id)}>Dismiss</button>
             </>
-          ) : (
+          ) : u.note ? (
+            <span className="ok-text">✓ {u.note}</span>
+          ) : u.progress < 1 ? (
             <progress value={u.progress} max={1} />
+          ) : (
+            <>
+              <progress />
+              <span className="muted">Processing… large videos can take a minute</span>
+            </>
           )}
         </div>
       ))}

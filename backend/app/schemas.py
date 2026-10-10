@@ -142,6 +142,7 @@ class MediaOut(ORM):
     background_color: str | None
     created_at: datetime
     used_in_loops: int = 0
+    converted_from: str | None = None  # set on upload, e.g. "HEIC → JPG"
 
 
 class MediaUpdate(BaseModel):

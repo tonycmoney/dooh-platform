@@ -184,3 +184,5 @@ tr.clickable:hover td { background: var(--surface-2); }
   .loop-row { flex-wrap: wrap; }
   .fit { width: 100%; }
 }
+.ok-text { color: var(--ok); }
+.upload.failed .error { margin: 0; }
