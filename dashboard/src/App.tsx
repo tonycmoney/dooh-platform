@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api'
+import Backups from './pages/Backups'
 import LoopEditor from './pages/LoopEditor'
 import Loops from './pages/Loops'
 import MediaPage from './pages/Media'
@@ -73,6 +74,7 @@ export default function App() {
           Media {pending > 0 && <span className="badge">{pending}</span>}
         </NavLink>
         <NavLink to="/loops">Loops</NavLink>
+        <NavLink to="/backups">Backups</NavLink>
         <button
           className="link logout"
           onClick={() => {
@@ -90,6 +92,7 @@ export default function App() {
           <Route path="/media" element={<MediaPage onChanged={() => api.stats().then((s) => setPending(s.pending_approvals))} />} />
           <Route path="/loops" element={<Loops />} />
           <Route path="/loops/:id" element={<LoopEditor />} />
+          <Route path="/backups" element={<Backups />} />
           <Route path="*" element={<Navigate to="/screens" replace />} />
         </Routes>
       </main>

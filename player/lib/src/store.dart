@@ -9,8 +9,14 @@ class Store {
 
   final SharedPreferences _prefs;
 
-  /// Over USB, `adb reverse tcp:8000 tcp:8000` makes the Mac reachable here.
-  static const defaultServerUrl = 'http://127.0.0.1:8000';
+  /// The server new tablets talk to. Release builds set it with
+  /// `--dart-define=SERVER_URL=https://...` (see scripts/build_player.sh).
+  /// Without it the player uses the Mac over USB, where
+  /// `adb reverse tcp:8000 tcp:8000` makes it reachable at this address.
+  static const defaultServerUrl = String.fromEnvironment(
+    'SERVER_URL',
+    defaultValue: 'http://127.0.0.1:8000',
+  );
 
   String get serverUrl => _prefs.getString('server_url') ?? defaultServerUrl;
   set serverUrl(String value) => _prefs.setString('server_url', value);

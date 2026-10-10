@@ -5,16 +5,22 @@ os.environ["DATABASE_URL"] = "postgresql+psycopg://localhost/dooh_test"
 os.environ["MEDIA_DIR"] = tempfile.mkdtemp(prefix="dooh-media-")
 os.environ["ADMIN_PASSWORD"] = "test-pass"
 os.environ["SECRET_KEY"] = "test-secret"
+os.environ["BACKUP_DIR"] = tempfile.mkdtemp(prefix="dooh-backups-")
+os.environ["DASHBOARD_DIR"] = _dashboard = tempfile.mkdtemp(prefix="dooh-dashboard-")
+with open(os.path.join(_dashboard, "index.html"), "w") as f:
+    f.write("<!doctype html><title>DOOH Control</title>")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.security import login_throttle  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def fresh_db():
+    login_throttle.__init__()
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield

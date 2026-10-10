@@ -1,0 +1,15 @@
+# Only source goes into the image: never secrets, local data or build output.
+**/.env
+**/.env.*
+.git
+media
+backups
+**/node_modules
+dashboard/dist
+backend/.venv
+**/__pycache__
+**/.pytest_cache
+player
+scripts
+*.dump
+*.apk

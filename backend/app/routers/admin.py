@@ -6,12 +6,14 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from .. import schemas, services
+from .. import backups, schemas, services
+from ..config import settings
 from ..db import get_db
 from ..media_files import (
     SUPPORTED_LABEL,
@@ -20,9 +22,17 @@ from ..media_files import (
     incoming_dir,
     kind_for,
     process_upload,
+    restore_file,
 )
 from ..models import ApprovalStatus, Device, Loop, LoopItem, Media, MediaKind, PlayLog
-from ..security import check_admin_password, create_admin_token, new_secret, require_admin, sha256_hex
+from ..security import (
+    check_admin_password,
+    create_admin_token,
+    login_throttle,
+    new_secret,
+    require_admin,
+    sha256_hex,
+)
 
 public = APIRouter(prefix="/api/admin", tags=["admin"])
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -39,9 +49,18 @@ def _not_found(what: str) -> HTTPException:
 
 
 @public.post("/login", response_model=schemas.LoginOut)
-def login(body: schemas.LoginIn):
+def login(body: schemas.LoginIn, request: Request):
+    client = request.client.host if request.client else "unknown"
+    if wait := login_throttle.retry_after(client):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many wrong passwords. Try again in {max(1, wait // 60)} min.",
+            headers={"Retry-After": str(wait)},
+        )
     if not check_admin_password(body.password):
+        login_throttle.failed(client)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong password")
+    login_throttle.reset(client)
     return schemas.LoginOut(token=create_admin_token())
 
 
@@ -163,6 +182,29 @@ async def upload_media(request: Request, db: Session = Depends(get_db)):
     out = services.media_out(media)
     out.converted_from = stored.converted_from
     return out
+
+
+@router.put("/media/{media_id}/file", response_model=schemas.MediaOut)
+async def restore_media_file(media_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    """Puts back the stored file of an existing media item (after moving
+    servers or losing the media volume). The body must be the exact file:
+    its SHA-256 has to match the one recorded at upload."""
+    media = _get_media(db, media_id)
+    if not media.filename or not media.sha256:
+        raise bad_request("This item has no file (text slide).")
+    incoming = incoming_dir() / f"{uuid.uuid4().hex}.restore"
+    try:
+        size = 0
+        with incoming.open("wb") as out:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "File too large.")
+                out.write(chunk)
+        await run_in_threadpool(restore_file, incoming, media.filename, media.sha256, media.kind)
+    finally:
+        incoming.unlink(missing_ok=True)
+    return services.media_out(media)
 
 
 @router.post("/text-slides", response_model=schemas.MediaOut, status_code=201)
@@ -421,3 +463,35 @@ def stats(db: Session = Depends(get_db)):
             select(func.count()).select_from(PlayLog).where(PlayLog.started_at >= today)
         ),
     }
+
+
+# --- Backups ------------------------------------------------------------------
+
+
+def _backup_out(b: backups.Backup) -> schemas.BackupOut:
+    return schemas.BackupOut(name=b.name, size_bytes=b.size_bytes, created_at=b.created_at)
+
+
+@router.get("/backups", response_model=schemas.BackupsOut)
+def list_backups():
+    return schemas.BackupsOut(
+        daily_enabled=settings.daily_backups,
+        keep_days=settings.backup_keep_days,
+        backups=[_backup_out(b) for b in backups.list_backups()],
+    )
+
+
+@router.post("/backups", response_model=schemas.BackupOut, status_code=201)
+async def backup_now():
+    try:
+        return _backup_out(await run_in_threadpool(backups.run_backup))
+    except RuntimeError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e)) from e
+
+
+@router.get("/backups/{name}")
+def download_backup(name: str):
+    path = backups.backup_path(name)
+    if path is None:
+        raise _not_found("Backup")
+    return FileResponse(path, media_type="application/octet-stream", filename=name)

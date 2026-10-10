@@ -86,6 +86,18 @@ export interface Screen {
   paired_at: string | null
 }
 
+export interface Backup {
+  name: string
+  size_bytes: number
+  created_at: string
+}
+
+export interface BackupList {
+  daily_enabled: boolean
+  keep_days: number
+  backups: Backup[]
+}
+
 export interface PlayLog {
   id: string
   media_title: string | null
@@ -249,6 +261,27 @@ export const api = {
   ) => request<Screen>('PATCH', `/api/admin/screens/${id}`, body),
   unpairScreen: (id: string) => request<void>('DELETE', `/api/admin/screens/${id}`),
   screenPlays: (id: string) => request<PlayLog[]>('GET', `/api/admin/screens/${id}/plays?limit=20`),
+
+  listBackups: () => request<BackupList>('GET', '/api/admin/backups'),
+  backupNow: () => request<Backup>('POST', '/api/admin/backups'),
+  downloadBackup,
+}
+
+/** Saves a backup file to the computer (the download needs the login token,
+ * so it goes through fetch rather than a plain link). */
+async function downloadBackup(name: string): Promise<void> {
+  const token = getToken()
+  const res = await fetch(`/api/admin/backups/${encodeURIComponent(name)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (res.status === 401) onUnauthorized()
+  if (!res.ok) throw new ApiError(res.status, `Download failed (${res.status})`)
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
 // --- Formatting helpers -------------------------------------------------------

@@ -117,6 +117,18 @@ class LoginOut(BaseModel):
     token: str
 
 
+class BackupOut(BaseModel):
+    name: str
+    size_bytes: int
+    created_at: datetime
+
+
+class BackupsOut(BaseModel):
+    daily_enabled: bool
+    keep_days: int
+    backups: list[BackupOut]
+
+
 class SettingsOut(BaseModel):
     auto_approve: bool
 

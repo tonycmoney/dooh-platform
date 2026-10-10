@@ -9,9 +9,11 @@ Videos: MP4 and MOV in; H.264 MP4 out, at most 1080 px on the short side and
 tablet decoders accept. Files already in that form are stored untouched.
 HDR/HEVC sources go through macOS avconvert (proper tone mapping) when
 available; anything still not screen-ready is re-encoded by ffmpeg at an exact,
-decoder-friendly size.
+decoder-friendly size, tone-mapping HDR with zscale where ffmpeg has it (the
+Linux server image does).
 """
 
+import functools
 import hashlib
 import json
 import logging
@@ -196,10 +198,14 @@ def _is_screen_ready(path: Path, info: dict) -> bool:
 
 
 def _target_size(w: int, h: int) -> tuple[int, int]:
-    """Fit within 1920 (long) x 1080 (short), never upscale, multiples of 16."""
+    """Fit within 1920 (long) x 1080 (short), never upscale, multiples of 16
+    (or exactly 1080, which decoders also handle)."""
     scale = min(1.0, MAX_VIDEO_LONG / max(w, h), MAX_VIDEO_SHORT / min(w, h))
-    tw, th = int(w * scale) // 16 * 16, int(h * scale) // 16 * 16
-    return max(tw, 16), max(th, 16)
+
+    def snap(n: int) -> int:
+        return n if n == 1080 else max(n // 16 * 16, 16)
+
+    return snap(round(w * scale)), snap(round(h * scale))
 
 
 def _avconvert(source: Path, original_name: str) -> Path | None:
@@ -220,6 +226,21 @@ def _avconvert(source: Path, original_name: str) -> Path | None:
     return None
 
 
+TONEMAP_TO_SDR = (
+    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+    "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv"
+)
+
+
+@functools.cache
+def _ffmpeg_can_tonemap() -> bool:
+    try:
+        filters = _run(["ffmpeg", "-hide_banner", "-filters"], PROBE_TIMEOUT).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return all(f" {name} " in filters for name in ("zscale", "tonemap"))
+
+
 def _ffmpeg_encode(source: Path, info: dict, original_name: str) -> Path:
     stream = _video_stream(info) or {}
     target = source.with_name(f"{source.stem}.ff.mp4")
@@ -229,7 +250,12 @@ def _ffmpeg_encode(source: Path, info: dict, original_name: str) -> Path:
         video_args = ["-c:v", "copy"]
     else:
         tw, th = _target_size(*_display_size(stream))
-        video_args = ["-vf", f"scale={tw}:{th}:flags=lanczos,setsar=1,format=yuv420p",
+        filters = f"scale={tw}:{th}:flags=lanczos,setsar=1"
+        if _is_hdr(stream) and _ffmpeg_can_tonemap():
+            # HDR (iPhone HLG / PQ) to SDR, for servers without avconvert.
+            filters += ("," + TONEMAP_TO_SDR)
+        video_args = ["-vf", f"{filters},format=yuv420p",
+                      "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
                       "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "medium", "-crf", "20"]
     cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
            *video_args, "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart",
@@ -337,6 +363,18 @@ def process_upload(incoming: Path, original_name: str) -> StoredFile:
     finally:
         for path in incoming.parent.glob(f"{incoming.stem}*"):
             path.unlink(missing_ok=True)
+
+
+def restore_file(source: Path, filename: str, sha256: str, kind: MediaKind) -> None:
+    """Moves `source` into place as stored file `filename` if its hash matches,
+    and remakes the thumbnail. Raises HTTPException(400) on a mismatch."""
+    if Path(filename).name != filename or filename.startswith("."):
+        raise bad_request("Invalid stored file name.")
+    if _sha256(source) != sha256:
+        raise bad_request("This isn't the same file: its SHA-256 doesn't match the one recorded at upload.")
+    target = media_dir() / filename
+    shutil.move(source, target)
+    _make_thumbnail(target, kind)
 
 
 def delete_files(*filenames: str | None) -> None:
