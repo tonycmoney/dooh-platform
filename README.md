@@ -1,19 +1,33 @@
 # DOOH Platform
 
-A self-hosted digital screen ad network:
+A self-hosted **digital out-of-home (DOOH) screen ad network**. Upload ads (photos, videos, text slides) in a web dashboard, arrange them into loops, assign loops to screens, and inexpensive Android tablets play them fullscreen around the clock. The tablets report their location, battery and what they're playing, and log every play as proof of play.
+
+It has three parts:
 
 - **backend/**: FastAPI + PostgreSQL. Handles device pairing, media and text slides, loops, the player manifest, heartbeats, idempotent proof of play and an approval queue.
 - **dashboard/**: React (Vite + TypeScript) control panel that runs on the Mac.
 - **player/**: Flutter Android app for the screens (tested on a KB10 tablet running Android 16).
 
+## Requirements
+
+- macOS with [Homebrew](https://brew.sh). Linux works too, but uses ffmpeg instead of macOS `avconvert` to convert video.
+- PostgreSQL 17, Python 3.13 (through [uv](https://docs.astral.sh/uv/)), Node.js, ffmpeg
+- Flutter and the Android SDK, to build the player
+- An Android tablet or phone running Android 8 or later (tested on Android 16)
+
 ## Run it locally
 
-Install the tools once:
+Install the tools and set up once:
 
 ```sh
-brew install postgresql@17 uv node ffmpeg   # ffmpeg probes and converts video
-cp backend/.env.example backend/.env   # then set ADMIN_PASSWORD and SECRET_KEY
+brew install postgresql@17 uv node ffmpeg
+brew services start postgresql@17
 createdb dooh
+
+cp backend/.env.example backend/.env
+# Edit backend/.env: choose an ADMIN_PASSWORD and set SECRET_KEY to a long random value, e.g.
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
 (cd dashboard && npm install)
 ```
 
@@ -32,7 +46,8 @@ When a tablet is plugged in over USB, `dev.sh` runs `adb reverse tcp:8000 tcp:80
 
 ```sh
 cd player
-flutter run -d <device-id>          # development build with logs
+flutter devices                      # find your tablet's device id
+flutter run --release -d <device-id>
 # or: flutter build apk --release && adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
@@ -62,9 +77,20 @@ To get back into tablet settings after that, tap the **top-left corner 5 times**
 
 Item timing: each loop item plays for its set seconds (default 10). A video either **loops** to fill that time, or plays **once and is cut** at that time (or ends when the video does, if that comes first).
 
+## Security notes
+
+- `backend/.env` holds the admin password and the token-signing key. It is ignored by git; never commit it. If it leaks, change both values and restart the backend.
+- The dashboard is built for a trusted local network. Before putting it on the internet, put it behind HTTPS, use a strong password, and set the allowed CORS origins in `backend/app/main.py` to your real dashboard address.
+- Uploaded files are served without authentication at `/files/…` so screens can download them. Don't upload anything private.
+- Photos are re-encoded without GPS metadata when converted. Original JPG/PNG files without location or rotation data are stored unchanged.
+
 ## Tests
 
 ```sh
 (cd backend && uv run pytest)
 (cd player && flutter test)
 ```
+
+## License
+
+[MIT](LICENSE)
