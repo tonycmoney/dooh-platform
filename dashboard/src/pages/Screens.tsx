@@ -148,11 +148,14 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
   async function submit(e: FormEvent) {
     e.preventDefault()
     try {
+      // Only send a loop change when the user actually picked a different
+      // loop, so editing the name or venue can never unassign content.
+      const loopChanged = form.loop_id !== (screen.loop_id ?? '')
       await api.updateScreen(screen.id, {
         name: form.name,
         venue_name: form.venue_name,
         venue_address: form.venue_address,
-        ...(form.loop_id ? { loop_id: form.loop_id } : { clear_loop: true }),
+        ...(loopChanged ? (form.loop_id ? { loop_id: form.loop_id } : { clear_loop: true }) : {}),
       })
       onSaved()
     } catch (err) {
@@ -175,6 +178,9 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
         <label>
           Loop
           <select value={form.loop_id} onChange={(e) => set('loop_id', e.target.value)}>
+            {form.loop_id && !loops.some((l) => l.id === form.loop_id) && (
+              <option value={form.loop_id}>{screen.loop_name ?? 'Current loop'}</option>
+            )}
             <option value="">None (blank screen)</option>
             {loops.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>

@@ -4,10 +4,12 @@ Images: JPG, PNG, HEIC/HEIF in; JPG or PNG out. HEIC is converted to JPG,
 the camera's rotation is applied to the pixels, and location metadata is
 stripped from anything that gets re-encoded.
 
-Videos: MP4 and MOV in; H.264 MP4 (max 1920x1080, SDR) out. Files that are
-already in that form are stored untouched; anything else (MOV, HEVC, 10-bit
-HDR from iPhones, 4K, ...) is converted with macOS avconvert when available,
-otherwise with ffmpeg.
+Videos: MP4 and MOV in; H.264 MP4 out, at most 1080 px on the short side and
+1920 on the long side (portrait or landscape), SDR, with dimensions that budget
+tablet decoders accept. Files already in that form are stored untouched.
+HDR/HEVC sources go through macOS avconvert (proper tone mapping) when
+available; anything still not screen-ready is re-encoded by ffmpeg at an exact,
+decoder-friendly size.
 """
 
 import hashlib
@@ -34,7 +36,8 @@ VIDEO_EXTENSIONS = {".mp4", ".mov"}
 SUPPORTED_LABEL = "JPG, PNG, HEIC, MP4 or MOV"
 
 MAX_IMAGE_SIDE = 3840  # larger photos are scaled down (tablets don't need 48 MP)
-MAX_VIDEO_W, MAX_VIDEO_H = 1920, 1080
+MAX_VIDEO_LONG, MAX_VIDEO_SHORT = 1920, 1080
+SAFE_AUDIO_RATES = {44100, 48000}
 PROBE_TIMEOUT = 60
 CONVERT_TIMEOUT = 60 * 60  # long 4K videos can take a while
 
@@ -153,51 +156,94 @@ def _display_size(stream: dict) -> tuple[int, int]:
     return (h, w) if abs(rotation) % 180 == 90 else (w, h)
 
 
+def _decoder_friendly(n: int) -> bool:
+    # Allwinner-class hardware decoders hang on frame sizes that aren't a
+    # multiple of 16 (1080 is the common, well-supported exception).
+    return n % 16 == 0 or n == 1080
+
+
+def _is_hdr(stream: dict) -> bool:
+    return stream.get("color_transfer") in ("smpte2084", "arib-std-b67")
+
+
 def _is_screen_ready(path: Path, info: dict) -> bool:
-    """H.264, 8-bit 4:2:0, SDR, MP4 container, within 1080p."""
+    """H.264 8-bit 4:2:0 SDR in MP4, within 1080x1920 either way round, with
+    decoder-friendly dimensions and a standard audio sample rate."""
     stream = _video_stream(info)
     if stream is None:
         return False
-    w, h = _display_size(stream)
+    w, h = stream.get("width") or 0, stream.get("height") or 0
+    audio = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
     return (
         path.suffix.lower() == ".mp4"
         and "mp4" in info.get("format", {}).get("format_name", "")
         and stream.get("codec_name") == "h264"
         and stream.get("pix_fmt") in ("yuv420p", "yuvj420p")
-        and stream.get("color_transfer") not in ("smpte2084", "arib-std-b67")
-        and max(w, h) <= MAX_VIDEO_W
-        and min(w, h) <= MAX_VIDEO_H
+        and not _is_hdr(stream)
+        and max(w, h) <= MAX_VIDEO_LONG
+        and min(w, h) <= MAX_VIDEO_SHORT
+        and _decoder_friendly(w)
+        and _decoder_friendly(h)
+        and all(int(a.get("sample_rate") or 0) in SAFE_AUDIO_RATES and a.get("codec_name") == "aac" for a in audio)
     )
 
 
-def _convert_video(source: Path, original_name: str) -> Path:
-    target = source.with_name(f"{source.stem}.converted.mp4")
-    attempts: list[list[str]] = []
-    if shutil.which("avconvert"):
-        # Apple's exporter: H.264, fits 1920x1080, HDR tone-mapped to SDR,
-        # rotation applied, location metadata removed.
-        attempts.append(["avconvert", "--preset", "Preset1920x1080", "--source", str(source),
-                         "--output", str(target), "--replace"])
-    scale = (f"scale='min({MAX_VIDEO_W},iw)':'min({MAX_VIDEO_H},ih)':"
-             "force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p")
-    attempts.append(["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
-                     "-vf", scale, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                     "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
-                     "-map_metadata", "-1", str(target)])
+def _target_size(w: int, h: int) -> tuple[int, int]:
+    """Fit within 1920 (long) x 1080 (short), never upscale, multiples of 16."""
+    scale = min(1.0, MAX_VIDEO_LONG / max(w, h), MAX_VIDEO_SHORT / min(w, h))
+    tw, th = int(w * scale) // 16 * 16, int(h * scale) // 16 * 16
+    return max(tw, 16), max(th, 16)
 
-    for cmd in attempts:
-        target.unlink(missing_ok=True)
-        try:
-            result = _run(cmd, CONVERT_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            continue
-        if result.returncode == 0 and target.exists():
-            stream = _video_stream(_probe(target))
-            if stream and stream.get("codec_name") == "h264":
-                return target
-        log.warning("%s failed for %s: %s", cmd[0], original_name, (result.stderr or "")[-500:])
+
+def _avconvert(source: Path, original_name: str) -> Path | None:
+    """Apple's exporter: H.264 within 1920x1080 (keeps portrait), HDR
+    tone-mapped to SDR, rotation applied, location metadata removed."""
+    if not shutil.which("avconvert"):
+        return None
+    target = source.with_name(f"{source.stem}.av.mp4")
+    try:
+        result = _run(["avconvert", "--preset", "Preset1920x1080", "--source", str(source),
+                       "--output", str(target), "--replace"], CONVERT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        result = None
+    if result is not None and result.returncode == 0 and target.exists():
+        return target
+    log.warning("avconvert failed for %s: %s", original_name, (result.stderr if result else "timeout")[-500:])
     target.unlink(missing_ok=True)
-    raise bad_request(f"“{original_name}” couldn't be converted to a playable MP4. Is the video complete?")
+    return None
+
+
+def _ffmpeg_encode(source: Path, info: dict, original_name: str) -> Path:
+    w, h = _display_size(_video_stream(info) or {})
+    tw, th = _target_size(w, h)
+    target = source.with_name(f"{source.stem}.ff.mp4")
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
+           "-vf", f"scale={tw}:{th}:flags=lanczos,setsar=1,format=yuv420p",
+           "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "medium", "-crf", "20",
+           "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart",
+           "-map_metadata", "-1", str(target)]
+    try:
+        result = _run(cmd, CONVERT_TIMEOUT)
+        ok = result.returncode == 0 and target.exists()
+    except subprocess.TimeoutExpired:
+        result, ok = None, False
+    if not ok:
+        log.warning("ffmpeg failed for %s: %s", original_name, (result.stderr if result else "timeout")[-500:])
+        target.unlink(missing_ok=True)
+        raise bad_request(f"“{original_name}” couldn't be converted to a playable MP4. Is the video complete?")
+    return target
+
+
+def _convert_video(source: Path, info: dict, original_name: str) -> Path:
+    stream = _video_stream(info) or {}
+    current, current_info = source, info
+    if _is_hdr(stream) or stream.get("codec_name") != "h264":
+        converted = _avconvert(source, original_name)
+        if converted is not None:
+            current, current_info = converted, _probe(converted)
+    if not _is_screen_ready(current, current_info):
+        current = _ffmpeg_encode(current, current_info, original_name)
+    return current
 
 
 def _process_video(source: Path, original_name: str) -> tuple[Path, float | None, int, int, str | None]:
@@ -208,7 +254,7 @@ def _process_video(source: Path, original_name: str) -> tuple[Path, float | None
     if not _is_screen_ready(source, info):
         stream = _video_stream(info) or {}
         before = f"{Path(original_name).suffix.lstrip('.').upper()} ({stream.get('codec_name', '?')})"
-        source = _convert_video(source, original_name)
+        source = _convert_video(source, info, original_name)
         info = _probe(source)
         converted = f"{before} → MP4 (H.264)"
     stream = _video_stream(info) or {}

@@ -70,10 +70,29 @@ def samples(tmp_path_factory) -> dict[str, bytes]:
          "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(mov_h264)],
         check=True,
     )
+    # The recommended ad format: 1080x1920 portrait H.264 with 48 kHz AAC.
     ready_mp4 = d / "ready.mp4"
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
-         "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(ready_mp4)],
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=30",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "2", "-c:v", "libx264",
+         "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", str(ready_mp4)],
+        check=True,
+    )
+    # Like the ElevenLabs export that hung the KB10's decoder: odd size,
+    # Constrained Baseline, 32 kHz audio.
+    odd_mp4 = d / "odd.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=834x1112:rate=24",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=32000", "-t", "2", "-c:v", "libx264",
+         "-profile:v", "baseline", "-pix_fmt", "yuv420p", "-c:a", "aac", str(odd_mp4)],
+        check=True,
+    )
+    # Portrait 4K HEVC, as an iPhone records when held upright.
+    portrait_mov = d / "IMG_0002.MOV"
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=2160x3840:rate=30",
+         "-t", "1", "-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error",
+         str(portrait_mov)],
         check=True,
     )
     return {
@@ -83,6 +102,8 @@ def samples(tmp_path_factory) -> dict[str, bytes]:
         "hevc_mov": mov.read_bytes(),
         "h264_mov": mov_h264.read_bytes(),
         "ready_mp4": ready_mp4.read_bytes(),
+        "odd_mp4": odd_mp4.read_bytes(),
+        "portrait_mov": portrait_mov.read_bytes(),
     }
 
 
@@ -134,6 +155,23 @@ def test_screen_ready_mp4_is_not_reencoded(admin, samples):
     body = raw_upload(admin, "ready.mp4", samples["ready_mp4"], "video/mp4").json()
     assert body["converted_from"] is None
     assert (media_dir() / Path(body["url"]).name).read_bytes() == samples["ready_mp4"]
+
+
+def test_odd_sized_video_is_reencoded_for_tablet_decoders(admin, samples):
+    body = raw_upload(admin, "ElevenLabs_video.mp4", samples["odd_mp4"], "video/mp4").json()
+    assert body["converted_from"]
+    path = media_dir() / Path(body["url"]).name
+    stream = _video(path)
+    assert (stream["width"], stream["height"]) == (832, 1104)
+    assert stream["codec_name"] == "h264"
+    audio = next(s for s in _probe(path)["streams"] if s["codec_type"] == "audio")
+    assert audio["sample_rate"] == "48000"
+
+
+def test_portrait_4k_stays_portrait_at_1080x1920(admin, samples):
+    body = raw_upload(admin, "IMG_0002.MOV", samples["portrait_mov"], "video/quicktime").json()
+    assert (body["width"], body["height"]) == (1080, 1920)
+    assert _video(media_dir() / Path(body["url"]).name)["codec_name"] == "h264"
 
 
 def test_multipart_accepts_any_field_name(admin, samples):
