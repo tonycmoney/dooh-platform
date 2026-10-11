@@ -1,0 +1,8 @@
+{
+  "name": "dooh-platform-infra",
+  "private": true,
+  "description": "Railway infrastructure-as-code tooling (.railway/railway.ts). The app lives in backend/, dashboard/ and player/.",
+  "devDependencies": {
+    "railway": "3.13.1"
+  }
+}

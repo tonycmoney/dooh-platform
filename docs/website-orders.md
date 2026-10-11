@@ -54,11 +54,37 @@ Content-Type: application/json
 
 The server answers right away and formats the file afterwards, so the website never waits for a video conversion. A download or conversion problem shows on the order in the dashboard, with a **Retry download** button.
 
+## Payment confirmation (Stripe)
+
+The website's Stripe Payment Links pass the order ID as `client_reference_id`. Stripe tells the server how each checkout ended through a webhook:
+
+- **Endpoint URL:** `https://<your server>/api/stripe/webhook`
+- **Events:**
+  - `checkout.session.completed`
+  - `checkout.session.async_payment_succeeded`
+  - `checkout.session.async_payment_failed`
+  - `checkout.session.expired`
+- **Server setting:** set `STRIPE_WEBHOOK_SECRET` to the endpoint's signing secret (`whsec_…`). Without it the endpoint answers 503.
+
+Every request's signature is checked, and requests older than 5 minutes are refused (replays). Each checkout session is stored once. Its status only moves forward (expired → clearing → failed → paid), so retried or out-of-order events are harmless. Payments are matched by order ID, whether the order or the payment arrives first.
+
+An order then shows one of these:
+
+| Status | Meaning |
+|---|---|
+| **Paid $x** | Checkout completed and paid (for a customer who retried checkout, the paid attempt wins) |
+| **Payment clearing** | A bank payment is still in progress |
+| **Payment failed** | The bank payment failed |
+| **Checkout abandoned** | Stripe expired the checkout unpaid (after 24 h) |
+| **Awaiting payment** | Stripe hasn't reported anything yet |
+
+Abandoned and failed orders don't count towards the menu badge. Approving the ad of an order that isn't paid asks for confirmation first.
+
 ## Dashboard
 
 **Orders** lists every order:
 - business, contact, plan, city and ad text
-- a link to look the order up in Stripe
+- its payment status from Stripe, with filter tabs (All / Paid / Awaiting payment / Abandoned) and a link to the payment
 - the formatted ad, with **Approve ad**, **Reject**, **Preview**, **Upload the ad** (for design orders), **Retry download** and **Delete**
 
-The menu badge counts orders waiting on you: an ad to approve, a file problem, or an ad still to design. Approving an ad doesn't put it on screens by itself. Add it to a loop.
+The menu badge counts orders waiting on you: an ad to approve, a file problem, or an ad still to design. Abandoned checkouts don't count. Approving an ad doesn't put it on screens by itself. Add it to a loop.

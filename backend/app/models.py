@@ -260,6 +260,33 @@ class WebsiteOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class PaymentStatus(str, enum.Enum):
+    paid = "paid"
+    pending = "pending"  # completed, but a bank payment is still clearing
+    failed = "failed"
+    expired = "expired"  # checkout abandoned (Stripe expires it after 24 h)
+
+
+# When Stripe sends events for one checkout out of order, keep the strongest.
+PAYMENT_PRECEDENCE = {PaymentStatus.expired: 1, PaymentStatus.pending: 2, PaymentStatus.failed: 3, PaymentStatus.paid: 4}
+
+
+class StripePayment(Base):
+    """One Stripe Checkout session, matched to a website order by the order
+    ID the website passes as client_reference_id."""
+
+    __tablename__ = "stripe_payments"
+
+    session_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    client_reference_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus, name="payment_status"))
+    amount_total: Mapped[int | None] = mapped_column(Integer)  # smallest currency unit (cents)
+    currency: Mapped[str | None] = mapped_column(String(10))
+    customer_email: Mapped[str | None] = mapped_column(String(255))
+    livemode: Mapped[bool] = mapped_column(default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

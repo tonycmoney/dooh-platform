@@ -7,6 +7,7 @@ os.environ["ORIGINALS_DIR"] = tempfile.mkdtemp(prefix="dooh-originals-")
 os.environ["ADMIN_PASSWORD"] = "test-pass"
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["WEBSITE_API_KEY"] = "w" * 40
+os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test_secret"
 os.environ["BACKUP_DIR"] = tempfile.mkdtemp(prefix="dooh-backups-")
 os.environ["DASHBOARD_DIR"] = _dashboard = tempfile.mkdtemp(prefix="dooh-dashboard-")
 with open(os.path.join(_dashboard, "index.html"), "w") as f:

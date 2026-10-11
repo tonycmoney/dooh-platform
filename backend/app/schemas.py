@@ -339,6 +339,11 @@ class OrderOut(BaseModel):
     can_retry: bool
     media: MediaOut | None
     created_at: datetime
+    # From Stripe: paid | pending | failed | abandoned | awaiting (no word yet)
+    payment_status: str = "awaiting"
+    paid_amount: int | None = None  # smallest currency unit (cents)
+    paid_currency: str | None = None
+    paid_at: datetime | None = None
 
 
 # --- Alerts and reports -------------------------------------------------------

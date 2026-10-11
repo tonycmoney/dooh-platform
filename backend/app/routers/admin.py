@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from .. import backups, notify, reports, schemas, services
+from .. import backups, notify, payments, reports, schemas, services
 from ..config import settings
 from ..db import get_db
 from ..formatting import FORMAT_VERSION, render_text
@@ -549,15 +549,8 @@ def stats(db: Session = Depends(get_db)):
         "plays_today": db.scalar(
             select(func.count()).select_from(PlayLog).where(PlayLog.started_at >= today)
         ),
-        # Website orders waiting on you: to approve, a failed file, or an ad to design.
-        "orders_to_review": db.scalar(
-            select(func.count()).select_from(WebsiteOrder).outerjoin(Media, WebsiteOrder.media_id == Media.id)
-            .where(
-                (Media.status == ApprovalStatus.pending)
-                | (WebsiteOrder.file_status == FileStatus.failed)
-                | ((WebsiteOrder.file_status == FileStatus.none) & WebsiteOrder.media_id.is_(None))
-            )
-        ),
+        # Website orders waiting on you (abandoned checkouts don't count).
+        "orders_to_review": sum(map(_needs_review, list_orders(db))),
     }
 
 
@@ -596,12 +589,33 @@ def download_backup(name: str):
 # --- Website orders -----------------------------------------------------------
 
 
-def _order_out(order: WebsiteOrder) -> schemas.OrderOut:
+def _order_out(order: WebsiteOrder, payment: payments.OrderPayment | None = None) -> schemas.OrderOut:
+    payment = payment or payments.OrderPayment("awaiting")
     return schemas.OrderOut(
-        **{f: getattr(order, f) for f in schemas.OrderOut.model_fields if f not in ("media", "can_retry")},
+        **{f: getattr(order, f) for f in schemas.OrderOut.model_fields
+           if f not in ("media", "can_retry") and not f.startswith(("payment_", "paid_"))},
         can_retry=order.file_status is FileStatus.failed and bool(order.file_url),
         media=services.media_out(order.media) if order.media else None,
+        payment_status=payment.status,
+        paid_amount=payment.amount_total,
+        paid_currency=payment.currency,
+        paid_at=payment.paid_at,
     )
+
+
+def _orders_out(db: Session, orders: list[WebsiteOrder]) -> list[schemas.OrderOut]:
+    paid = payments.payments_by_order(db, [o.external_id for o in orders])
+    return [_order_out(o, paid[o.external_id]) for o in orders]
+
+
+def _needs_review(o: schemas.OrderOut) -> bool:
+    """Waiting on you: an ad to approve, a file problem or an ad to design,
+    unless the customer abandoned checkout or the payment failed."""
+    if o.payment_status in ("abandoned", "failed"):
+        return False
+    return ((o.media is not None and o.media.status is ApprovalStatus.pending)
+            or o.file_status is FileStatus.failed
+            or (o.file_status is FileStatus.none and o.media is None))
 
 
 def _get_order(db: Session, order_id: uuid.UUID) -> WebsiteOrder:
@@ -615,7 +629,7 @@ def _get_order(db: Session, order_id: uuid.UUID) -> WebsiteOrder:
 def list_orders(db: Session = Depends(get_db)):
     query = (select(WebsiteOrder).options(selectinload(WebsiteOrder.media))
              .order_by(WebsiteOrder.created_at.desc()).limit(500))
-    return [_order_out(o) for o in db.scalars(query)]
+    return _orders_out(db, list(db.scalars(query)))
 
 
 @router.post("/orders/{order_id}/file", response_model=schemas.OrderOut)
@@ -629,7 +643,7 @@ async def attach_order_file(order_id: uuid.UUID, request: Request, db: Session =
     finally:
         incoming.unlink(missing_ok=True)
     db.refresh(order)
-    return _order_out(order)
+    return _orders_out(db, [order])[0]
 
 
 @router.delete("/orders/{order_id}", status_code=204)
@@ -657,7 +671,7 @@ def retry_order_file(order_id: uuid.UUID, background: BackgroundTasks, db: Sessi
     order.file_error = None
     db.commit()
     background.add_task(process_order_file, order.id)
-    return _order_out(order)
+    return _orders_out(db, [order])[0]
 
 
 # --- Alerts and reports -------------------------------------------------------

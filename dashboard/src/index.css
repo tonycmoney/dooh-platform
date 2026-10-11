@@ -226,3 +226,10 @@ button.card-frame { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .order-fields dd { margin: 0; overflow-wrap: anywhere; }
 .order-fields .pre { white-space: pre-wrap; }
 @media (max-width: 560px) { .order-card { flex-direction: column; } }
+
+/* Payment badges (Stripe) */
+.pay { font-size: 0.78rem; font-weight: 600; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid currentColor; }
+.pay-paid { color: var(--ok); }
+.pay-wait { color: var(--warn); }
+.pay-bad { color: var(--danger); }
+.tabs .active .muted { color: inherit; opacity: 0.8; }

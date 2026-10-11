@@ -70,7 +70,7 @@ Without kiosk mode (e.g. a test tablet), the player still runs. Two settings, se
 
 ## Deploy to the cloud (Railway)
 
-The `Dockerfile` builds one image: the backend serves the API, the uploaded media at `/files/…` and the built dashboard at `/`. `railway.json` tells Railway to use it, with `/api/health` as the health check.
+The `Dockerfile` builds one image: the backend serves the API, the uploaded media at `/files/…` and the built dashboard at `/`. The Railway project is defined in code in `.railway/railway.ts`: the service (Dockerfile build, `/api/health` health check, always restart), the Postgres database, both volumes and the domain. Variables are left unmanaged, so secrets stay in Railway. To change the infrastructure, edit that file, then run `npm install` (once, at the repo root, for Railway's SDK), `railway config plan` to preview the change, and `railway config apply`. Anything removed from the file is removed from Railway, so always read the plan first.
 
 1. Create a Railway project with a **PostgreSQL** database and a service built from this repo.
 2. On the service, add a **volume** mounted at `/data`. Formatted media goes in `/data/media`, originals in `/data/originals` and database backups in `/data/backups`.
@@ -108,7 +108,7 @@ Item timing: each loop item plays for its set seconds (default 10). A video eith
 
 ## Customer website orders
 
-The customer website posts screen ad orders to `POST /api/website/orders`, protected by `WEBSITE_API_KEY`. They appear on the dashboard's **Orders** page, and their ads wait for approval. See [docs/website-orders.md](docs/website-orders.md).
+The customer website posts screen ad orders to `POST /api/website/orders`, protected by `WEBSITE_API_KEY`. They appear on the dashboard's **Orders** page, and their ads wait for approval. Stripe confirms payments through `POST /api/stripe/webhook` (signed with `STRIPE_WEBHOOK_SECRET`), so each order shows as paid, awaiting payment or abandoned. See [docs/website-orders.md](docs/website-orders.md).
 
 ## Alerts and daily report
 

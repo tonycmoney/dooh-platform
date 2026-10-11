@@ -126,7 +126,14 @@ export interface Order {
   can_retry: boolean
   media: Media | null
   created_at: string
+  payment_status: PaymentStatus
+  paid_amount: number | null
+  paid_currency: string | null
+  paid_at: string | null
 }
+
+/** From Stripe: awaiting = no word yet; abandoned = checkout expired unpaid. */
+export type PaymentStatus = 'paid' | 'pending' | 'failed' | 'abandoned' | 'awaiting'
 
 export type AlertKind = 'offline' | 'not_playing'
 

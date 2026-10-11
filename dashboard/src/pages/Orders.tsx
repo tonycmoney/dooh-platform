@@ -4,7 +4,39 @@ import { FormatPreview, MediaThumb } from '../components'
 
 const REFRESH_MS = 15000
 
+type Filter = 'all' | 'paid' | 'awaiting' | 'abandoned'
+const FILTERS: [Filter, string][] = [['all', 'All'], ['paid', 'Paid'], ['awaiting', 'Awaiting payment'], ['abandoned', 'Abandoned']]
+
+function matches(o: Order, f: Filter) {
+  if (f === 'all') return true
+  if (f === 'paid') return o.payment_status === 'paid'
+  if (f === 'awaiting') return o.payment_status === 'awaiting' || o.payment_status === 'pending'
+  return o.payment_status === 'abandoned' || o.payment_status === 'failed'
+}
+
+function money(cents: number | null, currency: string | null) {
+  if (cents === null) return ''
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(cents / 100)
+}
+
+function PaymentBadge({ o }: { o: Order }) {
+  switch (o.payment_status) {
+    case 'paid':
+      return <span className="pay pay-paid" title={o.paid_at ? `Paid ${new Date(o.paid_at).toLocaleString()}` : ''}>✓ Paid {money(o.paid_amount, o.paid_currency)}</span>
+    case 'pending':
+      return <span className="pay pay-wait" title="Bank payment still clearing">Payment clearing</span>
+    case 'failed':
+      return <span className="pay pay-bad">Payment failed</span>
+    case 'abandoned':
+      return <span className="pay pay-bad" title="Stripe checkout expired without payment">Checkout abandoned</span>
+    default:
+      return <span className="pay pay-wait" title="No payment from Stripe yet (checkouts expire after 24 h)">Awaiting payment</span>
+  }
+}
+
 function orderState(o: Order): { label: string; tone: string } {
+  const unpaid = o.payment_status === 'abandoned' || o.payment_status === 'failed'
+  if (unpaid && o.media?.status !== 'approved') return { label: 'No action needed', tone: 'muted' }
   if (o.file_status === 'queued') return { label: 'Preparing file…', tone: 'muted' }
   if (o.file_status === 'failed') return { label: 'File problem', tone: 'rejected' }
   if (!o.media) return { label: 'Needs your design', tone: 'pending' }
@@ -19,6 +51,7 @@ export default function Orders({ onChanged }: { onChanged: () => void }) {
   const [orders, setOrders] = useState<Order[] | null>(null)
   const [previewing, setPreviewing] = useState<Media | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
   const attachFor = useRef<Order | null>(null)
@@ -72,12 +105,20 @@ export default function Orders({ onChanged }: { onChanged: () => void }) {
         e.target.value = ''
       }} />
 
+      <div className="tabs">
+        {FILTERS.map(([f, label]) => (
+          <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
+            {label} <span className="muted">{orders?.filter((o) => matches(o, f)).length ?? ''}</span>
+          </button>
+        ))}
+      </div>
+
       {orders && orders.length === 0 && (
         <p className="empty">No website orders yet. When a customer buys a screen ad spot, it shows up here.</p>
       )}
 
       <div className="orders">
-        {orders?.map((o) => {
+        {orders?.filter((o) => matches(o, filter)).map((o) => {
           const state = orderState(o)
           const m = o.media
           return (
@@ -96,6 +137,7 @@ export default function Orders({ onChanged }: { onChanged: () => void }) {
               <div className="order-info">
                 <div className="order-title">
                   <strong>{o.business_name}</strong>
+                  <PaymentBadge o={o} />
                   <span className={`status status-${state.tone}`}>{state.label}</span>
                 </div>
                 <div className="muted small-text">
@@ -120,7 +162,15 @@ export default function Orders({ onChanged }: { onChanged: () => void }) {
                 </dl>
                 <div className="card-actions">
                   {m && m.status !== 'approved' && (
-                    <button className="primary small" disabled={busy === o.id} onClick={() => act(o.id, () => api.approve(m.id))}>
+                    <button
+                      className="primary small"
+                      disabled={busy === o.id}
+                      onClick={() =>
+                        (o.payment_status === 'paid' ||
+                          confirm(`Stripe hasn't confirmed payment for this order (${o.payment_status}). Approve the ad anyway?`)) &&
+                        act(o.id, () => api.approve(m.id))
+                      }
+                    >
                       Approve ad
                     </button>
                   )}

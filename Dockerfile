@@ -1,5 +1,5 @@
 # One image: the FastAPI backend serving the API, uploaded media and the
-# built dashboard. Used by Railway (see railway.json); runs anywhere Docker does.
+# built dashboard. Used by Railway (see .railway/railway.ts); runs anywhere Docker does.
 
 # --- Dashboard build ----------------------------------------------------------
 FROM node:22-slim AS dashboard

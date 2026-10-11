@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     website_api_key: str = ""
     order_file_hosts: str = ".supabase.co"
     order_file_max_bytes: int = 200 * 2**20
+    # Signing secret of the Stripe webhook endpoint (whsec_...); payments are
+    # matched to website orders by client_reference_id.
+    stripe_webhook_secret: str = ""
 
     # Email (Resend's HTTPS API; Railway's Hobby plan blocks SMTP).
     resend_api_key: str = ""
