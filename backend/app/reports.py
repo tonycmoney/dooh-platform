@@ -34,10 +34,12 @@ def daily_report(db: Session, day: date, now: datetime | None = None) -> schemas
 
     screens = []
     for d in devices:
-        # Measure from when the screen was paired (if that day) up to now (if today).
-        window_start = max(start, d.paired_at) if d.paired_at else start
+        # Measure from when the screen was paired, or its uptime was first
+        # recorded (tracking began later than some screens), up to now.
+        first_slot = db.scalar(select(func.min(DeviceUptime.slot_start)).where(DeviceUptime.device_id == d.id))
+        window_start = max(t for t in (start, d.paired_at, first_slot) if t is not None)
         window_end = min(end, now)
-        expected = max(0, int((window_end - window_start) / UPTIME_SLOT))
+        expected = 0 if first_slot is None else max(0, int((window_end - window_start) / UPTIME_SLOT))
         slots = db.scalar(
             select(func.count()).select_from(DeviceUptime)
             .where(DeviceUptime.device_id == d.id, DeviceUptime.slot_start > window_start - UPTIME_SLOT,

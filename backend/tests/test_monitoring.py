@@ -174,6 +174,21 @@ def test_daily_report_uptime_plays_and_incidents(admin):
     assert "<table" in html
 
 
+def test_uptime_only_counts_from_when_tracking_began(admin):
+    day = date(2026, 10, 4)
+    start, _ = reports.day_bounds(day)
+    d = screen(admin, paired_ago=timedelta(days=30), played_ago=None)
+    with SessionLocal() as db:
+        # Tracking started at noon and the screen was up from then on.
+        for i in range(144, 288):
+            db.add(DeviceUptime(device_id=d, slot_start=start + i * timedelta(minutes=5)))
+        db.commit()
+        [s] = reports.daily_report(db, day).screens
+        assert s.uptime_percent == 100.0
+        [s] = reports.daily_report(db, date(2026, 10, 3)).screens
+        assert s.uptime_percent is None  # before tracking: no number rather than 0%
+
+
 def test_report_goes_out_once_each_morning(admin, outbox):
     with SessionLocal() as db:
         before_7 = datetime(2026, 10, 12, 10, 30, tzinfo=timezone.utc)  # 6:30 am New York
