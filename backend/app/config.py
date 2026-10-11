@@ -38,6 +38,19 @@ class Settings(BaseSettings):
     order_file_hosts: str = ".supabase.co"
     order_file_max_bytes: int = 200 * 2**20
 
+    # Email (Resend's HTTPS API; Railway's Hobby plan blocks SMTP).
+    resend_api_key: str = ""
+    alert_email_to: str = ""  # comma-separated
+    alert_email_from: str = "DOOH Alerts <onboarding@resend.dev>"
+    public_url: str = ""  # dashboard address, for links in emails
+
+    # Alerts and the daily report (the monitor runs when monitoring is on).
+    monitoring: bool = False
+    alert_offline_minutes: int = 10
+    alert_not_playing_minutes: int = 10
+    timezone: str = "America/New_York"
+    daily_report_hour: int = 7  # local time; covers the previous day
+
     # A screen counts as offline after this many seconds without a heartbeat
     # (3 missed heartbeats at the 60 s interval).
     offline_after_seconds: int = 180

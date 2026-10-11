@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import backups, orders
+from . import alerts, backups, orders
 from .config import settings
 from .media_files import media_dir
 from .routers import admin, player, website
@@ -22,9 +22,11 @@ async def lifespan(_: FastAPI):
         raise RuntimeError("Unsafe production settings: " + "; ".join(problems))
     stop = backups.start_scheduler() if settings.daily_backups else None
     orders.resume_queued()
+    monitor = alerts.start_monitor() if settings.monitoring else None
     yield
-    if stop:
-        stop.set()
+    for event in (stop, monitor):
+        if event:
+            event.set()
 
 
 app = FastAPI(title="DOOH Platform API", version="0.1.0", lifespan=lifespan)

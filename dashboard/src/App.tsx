@@ -6,6 +6,7 @@ import LoopEditor from './pages/LoopEditor'
 import Loops from './pages/Loops'
 import MediaPage from './pages/Media'
 import Orders from './pages/Orders'
+import Reports from './pages/Reports'
 import Screens from './pages/Screens'
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -86,6 +87,7 @@ export default function App() {
           Orders {ordersToReview > 0 && <span className="badge">{ordersToReview}</span>}
         </NavLink>
         <NavLink to="/loops">Loops</NavLink>
+        <NavLink to="/reports">Reports</NavLink>
         <NavLink to="/backups">Backups</NavLink>
         <button
           className="link logout"
@@ -105,6 +107,7 @@ export default function App() {
           <Route path="/orders" element={<Orders onChanged={refreshCounts} />} />
           <Route path="/loops" element={<Loops />} />
           <Route path="/loops/:id" element={<LoopEditor />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="*" element={<Navigate to="/screens" replace />} />
         </Routes>

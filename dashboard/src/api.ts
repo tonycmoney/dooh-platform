@@ -128,6 +128,62 @@ export interface Order {
   created_at: string
 }
 
+export type AlertKind = 'offline' | 'not_playing'
+
+export interface AdPlays {
+  title: string
+  plays: number
+  seconds: number
+  screens: number | null
+}
+
+export interface Incident {
+  kind: AlertKind
+  detail: string | null
+  started_at: string
+  resolved_at: string | null
+  minutes: number
+}
+
+export interface ScreenReport {
+  device_id: string
+  name: string
+  venue_name: string | null
+  uptime_percent: number | null
+  online_minutes: number
+  plays: number
+  ads: AdPlays[]
+  incidents: Incident[]
+}
+
+export interface DailyReport {
+  day: string
+  timezone: string
+  screens: ScreenReport[]
+  ads: AdPlays[]
+  total_plays: number
+}
+
+export interface AlertRow {
+  id: string
+  screen: string
+  kind: AlertKind
+  detail: string | null
+  started_at: string
+  resolved_at: string | null
+  emailed: boolean
+}
+
+export interface MonitoringStatus {
+  monitoring: boolean
+  email_configured: boolean
+  alert_email_to: string[]
+  offline_minutes: number
+  not_playing_minutes: number
+  report_hour: number
+  timezone: string
+}
+
 export interface Settings {
   auto_approve: boolean
   maintenance_pin_set: boolean
@@ -310,6 +366,12 @@ export const api = {
   ) => request<Screen>('PATCH', `/api/admin/screens/${id}`, body),
   unpairScreen: (id: string) => request<void>('DELETE', `/api/admin/screens/${id}`),
   screenPlays: (id: string) => request<PlayLog[]>('GET', `/api/admin/screens/${id}/plays?limit=20`),
+
+  monitoring: () => request<MonitoringStatus>('GET', '/api/admin/monitoring'),
+  listAlerts: () => request<AlertRow[]>('GET', '/api/admin/alerts?limit=30'),
+  testEmail: () => request<{ sent_to: string[] }>('POST', '/api/admin/alerts/test-email'),
+  dailyReport: (day?: string) => request<DailyReport>('GET', `/api/admin/reports/daily${day ? `?day=${day}` : ''}`),
+  emailReport: (day: string) => request<{ sent_to: string[] }>('POST', `/api/admin/reports/daily/email?day=${day}`),
 
   listBackups: () => request<BackupList>('GET', '/api/admin/backups'),
   backupNow: () => request<Backup>('POST', '/api/admin/backups'),

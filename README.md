@@ -110,6 +110,16 @@ Item timing: each loop item plays for its set seconds (default 10). A video eith
 
 The customer website posts screen ad orders to `POST /api/website/orders`, protected by `WEBSITE_API_KEY`. They appear on the dashboard's **Orders** page, and their ads wait for approval. See [docs/website-orders.md](docs/website-orders.md).
 
+## Alerts and daily report
+
+With `MONITORING=true`, the server checks every screen once a minute. It emails you when a screen is **offline for 10 minutes** (no check-in) or **stops playing for 10 minutes** (online, but no plays reported; the limit is longer for loops with long videos). It emails again when the screen recovers. Each incident sends one email, and problems that clear before the email goes out send nothing.
+
+Every morning at `DAILY_REPORT_HOUR` (default 7, in `TIMEZONE`, default America/New_York) it emails the previous day's report: each screen's **uptime** (the share of 5-minute slots with a check-in), its incidents, and **plays per ad**. The dashboard's **Reports** page shows the same for any day, plus recent alerts and a test-email button.
+
+Email goes through [Resend](https://resend.com)'s HTTPS API, because Railway's Hobby plan blocks SMTP. Set `RESEND_API_KEY`, `ALERT_EMAIL_TO` (comma-separated) and `PUBLIC_URL` (for dashboard links in the emails). Without a verified domain, Resend only delivers to your own Resend account's address, which is all alerts need.
+
+Installing a screen at a business: [docs/install-checklist.md](docs/install-checklist.md).
+
 ## Security notes
 
 - `backend/.env` holds the admin password and the token-signing key. It is ignored by git; never commit it. If it leaks, change both values and restart the backend.

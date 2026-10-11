@@ -2,7 +2,8 @@
 
 import tempfile
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from .. import backups, schemas, services
+from .. import backups, notify, reports, schemas, services
 from ..config import settings
 from ..db import get_db
 from ..formatting import FORMAT_VERSION, render_text
@@ -30,6 +31,7 @@ from ..media_files import (
     restore_file,
 )
 from ..models import (
+    Alert,
     ApprovalStatus,
     Device,
     FileStatus,
@@ -656,3 +658,57 @@ def retry_order_file(order_id: uuid.UUID, background: BackgroundTasks, db: Sessi
     db.commit()
     background.add_task(process_order_file, order.id)
     return _order_out(order)
+
+
+# --- Alerts and reports -------------------------------------------------------
+
+
+def _yesterday() -> date:
+    return datetime.now(ZoneInfo(settings.timezone)).date() - timedelta(days=1)
+
+
+@router.get("/monitoring", response_model=schemas.MonitoringStatus)
+def monitoring_status():
+    return schemas.MonitoringStatus(
+        monitoring=settings.monitoring,
+        email_configured=notify.email_configured(),
+        alert_email_to=notify.recipients(),
+        offline_minutes=settings.alert_offline_minutes,
+        not_playing_minutes=settings.alert_not_playing_minutes,
+        report_hour=settings.daily_report_hour,
+        timezone=settings.timezone,
+    )
+
+
+@router.get("/alerts", response_model=list[schemas.AlertOut])
+def list_alerts(limit: int = Query(default=50, le=500), db: Session = Depends(get_db)):
+    rows = db.scalars(
+        select(Alert).options(selectinload(Alert.device)).order_by(Alert.started_at.desc()).limit(limit)
+    )
+    return [schemas.AlertOut(id=a.id, screen=a.device.name or "Unnamed screen", kind=a.kind, detail=a.detail,
+                             started_at=a.started_at, resolved_at=a.resolved_at, emailed=a.notified_at is not None
+                             and a.notified_at != a.resolved_notified_at) for a in rows]
+
+
+@router.post("/alerts/test-email")
+def test_email():
+    if not notify.email_configured():
+        raise bad_request("Email isn't set up: add RESEND_API_KEY and ALERT_EMAIL_TO on the server.")
+    ok = notify.send_email("DOOH test email", "This is a test from your DOOH dashboard. Alerts and daily reports will arrive like this.")
+    if not ok:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The email service refused the message; see the server log.")
+    return {"sent_to": notify.recipients()}
+
+
+@router.get("/reports/daily", response_model=schemas.DailyReport)
+def get_daily_report(day: date | None = None, db: Session = Depends(get_db)):
+    return reports.daily_report(db, day or _yesterday())
+
+
+@router.post("/reports/daily/email")
+def email_daily_report(day: date | None = None, db: Session = Depends(get_db)):
+    if not notify.email_configured():
+        raise bad_request("Email isn't set up: add RESEND_API_KEY and ALERT_EMAIL_TO on the server.")
+    if not notify.send_email(*reports.render_email(reports.daily_report(db, day or _yesterday()))):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "The email service refused the message; see the server log.")
+    return {"sent_to": notify.recipients()}

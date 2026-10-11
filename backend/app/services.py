@@ -5,11 +5,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
 from . import formatting, schemas
 from .config import settings
-from .models import ApprovalStatus, Device, Loop, LoopItem, Media, MediaKind, Setting
+from .models import ApprovalStatus, Device, DeviceUptime, Loop, LoopItem, Media, MediaKind, Setting
 
 FILES_PREFIX = "/files"
 
@@ -184,6 +185,22 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
 
 
 # --- Devices ------------------------------------------------------------------
+
+UPTIME_SLOT = timedelta(minutes=5)
+
+
+def uptime_slot(at: datetime) -> datetime:
+    at = at.astimezone(timezone.utc)
+    return at.replace(minute=at.minute - at.minute % 5, second=0, microsecond=0)
+
+
+def record_uptime(db: Session, device_id, at: datetime) -> None:
+    """Marks the screen as up in this 5-minute slot (once per slot)."""
+    db.execute(
+        pg_insert(DeviceUptime)
+        .values(device_id=device_id, slot_start=uptime_slot(at))
+        .on_conflict_do_nothing()
+    )
 
 
 def is_online(device: Device, now: datetime | None = None) -> bool:

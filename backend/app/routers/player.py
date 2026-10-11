@@ -100,6 +100,7 @@ def heartbeat(
     device.now_playing_title = body.now_playing_title
     if body.manifest_version:
         device.manifest_version = body.manifest_version
+    services.record_uptime(db, device.id, now)
     db.commit()
 
     return schemas.HeartbeatOut(

@@ -185,6 +185,42 @@ class PlayLog(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class DeviceUptime(Base):
+    """One row per screen per 5-minute slot in which it checked in. Uptime for
+    a day is the share of its 288 slots that have a row."""
+
+    __tablename__ = "device_uptime"
+
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    slot_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+
+
+class AlertKind(str, enum.Enum):
+    offline = "offline"  # no heartbeat for a while
+    not_playing = "not_playing"  # online, but no plays coming in
+
+
+class Alert(Base):
+    """An incident on a screen, from detection until it clears. Emails go out
+    when it starts and when it clears."""
+
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), index=True
+    )
+    device: Mapped["Device"] = relationship()
+    kind: Mapped[AlertKind] = mapped_column(Enum(AlertKind, name="alert_kind"))
+    detail: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class FileStatus(str, enum.Enum):
     none = "none"  # the customer chose "Design it for me", or no file was sent
     queued = "queued"  # waiting to be downloaded and formatted

@@ -4,7 +4,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .models import ApprovalStatus, FileStatus, FitMode, MediaKind, VideoFit
+from datetime import date
+
+from .models import AlertKind, ApprovalStatus, FileStatus, FitMode, MediaKind, VideoFit
 
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -337,3 +339,60 @@ class OrderOut(BaseModel):
     can_retry: bool
     media: MediaOut | None
     created_at: datetime
+
+
+# --- Alerts and reports -------------------------------------------------------
+
+
+class AdPlays(BaseModel):
+    title: str
+    plays: int
+    seconds: int
+    screens: int | None = None
+
+
+class IncidentOut(BaseModel):
+    kind: AlertKind
+    detail: str | None
+    started_at: datetime
+    resolved_at: datetime | None
+    minutes: int
+
+
+class ScreenReport(BaseModel):
+    device_id: uuid.UUID
+    name: str
+    venue_name: str | None
+    uptime_percent: float | None  # None: the screen didn't exist yet that day
+    online_minutes: int
+    plays: int
+    ads: list[AdPlays]
+    incidents: list[IncidentOut]
+
+
+class DailyReport(BaseModel):
+    day: date
+    timezone: str
+    screens: list[ScreenReport]
+    ads: list[AdPlays]
+    total_plays: int
+
+
+class AlertOut(BaseModel):
+    id: uuid.UUID
+    screen: str
+    kind: AlertKind
+    detail: str | None
+    started_at: datetime
+    resolved_at: datetime | None
+    emailed: bool
+
+
+class MonitoringStatus(BaseModel):
+    monitoring: bool
+    email_configured: bool
+    alert_email_to: list[str]
+    offline_minutes: int
+    not_playing_minutes: int
+    report_hour: int
+    timezone: str
