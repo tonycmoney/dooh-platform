@@ -27,15 +27,16 @@ command -v adb >/dev/null || die "adb not found. Install the Android platform to
 SERIAL=$(adb get-serialno)
 ok "Tablet $(adb shell getprop ro.product.model | tr -d '\r') (Android $(adb shell getprop ro.build.version.release | tr -d '\r'))"
 
-OWNER=$(adb shell dpm list-owners 2>/dev/null | tr -d '\r')
-if echo "$OWNER" | grep -q "$PKG"; then
+# dumpsys works on every Android version (dpm list-owners needs Android 11+).
+OWNER=$(adb shell dumpsys device_policy </dev/null 2>/dev/null | tr -d '\r' | grep -A3 "Device Owner:" | sed -n 's/^ *package=//p')
+if [ "$OWNER" = "$PKG" ]; then
   ok "Already a kiosk (device owner): updating the player only"
   adb install -r "$APK" >/dev/null || die "Update failed. Is the APK signed with the key in ~/dooh-keys?"
   adb shell am start -n "$PKG/.MainActivity" >/dev/null
   ok "Player updated and restarted"
   exit 0
 fi
-echo "$OWNER" | grep -qi "device owner" && die "Another app is device owner. Factory reset the tablet first."
+[ -z "$OWNER" ] || die "Another app ($OWNER) is device owner. Factory reset the tablet first."
 
 ACCOUNTS=$(adb shell dumpsys account | grep -c "Account {" || true)
 [ "$ACCOUNTS" -eq 0 ] || die "The tablet has $ACCOUNTS account(s) signed in (e.g. Google). Remove them in Settings → Passwords & accounts, then run this again."
