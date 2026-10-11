@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
@@ -29,7 +29,19 @@ from ..media_files import (
     reformat,
     restore_file,
 )
-from ..models import ApprovalStatus, Device, FitMode, Loop, LoopItem, Media, MediaKind, PlayLog
+from ..models import (
+    ApprovalStatus,
+    Device,
+    FileStatus,
+    FitMode,
+    Loop,
+    LoopItem,
+    Media,
+    MediaKind,
+    PlayLog,
+    WebsiteOrder,
+)
+from ..orders import attach_file, process_order_file
 from ..security import (
     check_admin_password,
     create_admin_token,
@@ -535,6 +547,15 @@ def stats(db: Session = Depends(get_db)):
         "plays_today": db.scalar(
             select(func.count()).select_from(PlayLog).where(PlayLog.started_at >= today)
         ),
+        # Website orders waiting on you: to approve, a failed file, or an ad to design.
+        "orders_to_review": db.scalar(
+            select(func.count()).select_from(WebsiteOrder).outerjoin(Media, WebsiteOrder.media_id == Media.id)
+            .where(
+                (Media.status == ApprovalStatus.pending)
+                | (WebsiteOrder.file_status == FileStatus.failed)
+                | ((WebsiteOrder.file_status == FileStatus.none) & WebsiteOrder.media_id.is_(None))
+            )
+        ),
     }
 
 
@@ -568,3 +589,70 @@ def download_backup(name: str):
     if path is None:
         raise _not_found("Backup")
     return FileResponse(path, media_type="application/octet-stream", filename=name)
+
+
+# --- Website orders -----------------------------------------------------------
+
+
+def _order_out(order: WebsiteOrder) -> schemas.OrderOut:
+    return schemas.OrderOut(
+        **{f: getattr(order, f) for f in schemas.OrderOut.model_fields if f not in ("media", "can_retry")},
+        can_retry=order.file_status is FileStatus.failed and bool(order.file_url),
+        media=services.media_out(order.media) if order.media else None,
+    )
+
+
+def _get_order(db: Session, order_id: uuid.UUID) -> WebsiteOrder:
+    order = db.get(WebsiteOrder, order_id)
+    if order is None:
+        raise _not_found("Order")
+    return order
+
+
+@router.get("/orders", response_model=list[schemas.OrderOut])
+def list_orders(db: Session = Depends(get_db)):
+    query = (select(WebsiteOrder).options(selectinload(WebsiteOrder.media))
+             .order_by(WebsiteOrder.created_at.desc()).limit(500))
+    return [_order_out(o) for o in db.scalars(query)]
+
+
+@router.post("/orders/{order_id}/file", response_model=schemas.OrderOut)
+async def attach_order_file(order_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    """Adds the ad you made for a "Design it for me" order (or a corrected
+    file). Like every website ad, it waits for approval."""
+    order = _get_order(db, order_id)
+    incoming, filename, _ = await _receive_upload(request)
+    try:
+        await run_in_threadpool(attach_file, order, incoming, filename, db)
+    finally:
+        incoming.unlink(missing_ok=True)
+    db.refresh(order)
+    return _order_out(order)
+
+
+@router.delete("/orders/{order_id}", status_code=204)
+def delete_order(order_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Removes a spam or test order, and its ad unless it's approved (an
+    approved ad stays in the media library)."""
+    order = _get_order(db, order_id)
+    media = order.media if order.media and order.media.status is not ApprovalStatus.approved else None
+    files = (media.filename, media.thumbnail_filename, media.source_filename) if media else ()
+    db.delete(order)
+    if media:
+        db.delete(media)
+    db.commit()
+    if files:
+        delete_files(files[0], files[1])
+        delete_originals(files[2])
+
+
+@router.post("/orders/{order_id}/retry", response_model=schemas.OrderOut)
+def retry_order_file(order_id: uuid.UUID, background: BackgroundTasks, db: Session = Depends(get_db)):
+    order = _get_order(db, order_id)
+    if order.file_status is not FileStatus.failed or not order.file_url:
+        raise bad_request("There's no failed download to retry.")
+    order.file_status = FileStatus.queued
+    order.file_error = None
+    db.commit()
+    background.add_task(process_order_file, order.id)
+    return _order_out(order)

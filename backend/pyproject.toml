@@ -13,6 +13,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pillow>=12.3.0",
     "pillow-heif>=1.8.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

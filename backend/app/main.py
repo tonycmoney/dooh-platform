@@ -6,10 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import backups
+from . import backups, orders
 from .config import settings
 from .media_files import media_dir
-from .routers import admin, player
+from .routers import admin, player, website
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dooh")
@@ -21,6 +21,7 @@ async def lifespan(_: FastAPI):
         # Refuse to start rather than run in public with a weak login.
         raise RuntimeError("Unsafe production settings: " + "; ".join(problems))
     stop = backups.start_scheduler() if settings.daily_backups else None
+    orders.resume_queued()
     yield
     if stop:
         stop.set()
@@ -50,6 +51,7 @@ async def security_headers(request: Request, call_next):
 app.include_router(player.router)
 app.include_router(admin.public)
 app.include_router(admin.router)
+app.include_router(website.router)
 app.mount("/files", StaticFiles(directory=media_dir()), name="files")
 
 

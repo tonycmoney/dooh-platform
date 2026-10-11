@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api'
 import Backups from './pages/Backups'
 import LoopEditor from './pages/LoopEditor'
 import Loops from './pages/Loops'
 import MediaPage from './pages/Media'
+import Orders from './pages/Orders'
 import Screens from './pages/Screens'
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -47,6 +48,15 @@ function Login({ onLogin }: { onLogin: () => void }) {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(() => Boolean(getToken()))
   const [pending, setPending] = useState(0)
+  const [ordersToReview, setOrdersToReview] = useState(0)
+
+  // Stable, so pages can depend on it without reloading on every render.
+  const refreshCounts = useCallback(() => {
+    api.stats().then((s) => {
+      setPending(s.pending_approvals)
+      setOrdersToReview(s.orders_to_review)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
@@ -57,11 +67,10 @@ export default function App() {
 
   useEffect(() => {
     if (!loggedIn) return
-    const load = () => api.stats().then((s) => setPending(s.pending_approvals)).catch(() => {})
-    load()
-    const timer = setInterval(load, 15000)
+    refreshCounts()
+    const timer = setInterval(refreshCounts, 15000)
     return () => clearInterval(timer)
-  }, [loggedIn])
+  }, [loggedIn, refreshCounts])
 
   if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />
 
@@ -72,6 +81,9 @@ export default function App() {
         <NavLink to="/screens">Screens</NavLink>
         <NavLink to="/media">
           Media {pending > 0 && <span className="badge">{pending}</span>}
+        </NavLink>
+        <NavLink to="/orders">
+          Orders {ordersToReview > 0 && <span className="badge">{ordersToReview}</span>}
         </NavLink>
         <NavLink to="/loops">Loops</NavLink>
         <NavLink to="/backups">Backups</NavLink>
@@ -89,7 +101,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/screens" replace />} />
           <Route path="/screens" element={<Screens />} />
-          <Route path="/media" element={<MediaPage onChanged={() => api.stats().then((s) => setPending(s.pending_approvals))} />} />
+          <Route path="/media" element={<MediaPage onChanged={refreshCounts} />} />
+          <Route path="/orders" element={<Orders onChanged={refreshCounts} />} />
           <Route path="/loops" element={<Loops />} />
           <Route path="/loops/:id" element={<LoopEditor />} />
           <Route path="/backups" element={<Backups />} />

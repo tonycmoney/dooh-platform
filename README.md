@@ -106,6 +106,10 @@ The image sets `ENVIRONMENT=production`, so the server refuses to start with a m
 
 Item timing: each loop item plays for its set seconds (default 10). A video either **loops** to fill that time, or plays **once and is cut** at that time (or ends when the video does, if that comes first).
 
+## Customer website orders
+
+The customer website posts screen ad orders to `POST /api/website/orders`, protected by `WEBSITE_API_KEY`. They appear on the dashboard's **Orders** page, and their ads wait for approval. See [docs/website-orders.md](docs/website-orders.md).
+
 ## Security notes
 
 - `backend/.env` holds the admin password and the token-signing key. It is ignored by git; never commit it. If it leaks, change both values and restart the backend.

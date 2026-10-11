@@ -149,6 +149,7 @@ tr.clickable:hover td { background: var(--surface-2); }
 .status-pending { color: var(--warn); }
 .status-approved { color: var(--ok); }
 .status-rejected { color: var(--danger); }
+.status-muted { color: var(--muted); }
 .toggle { flex-direction: row; align-items: center; gap: 0.4rem; color: var(--text); cursor: pointer; }
 
 /* Modal */
@@ -214,3 +215,14 @@ button.card-frame { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .pin-card.pin-missing { border-color: var(--warn, #d97706); }
 .pin-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .pin-form input { width: 9rem; }
+
+/* Website orders */
+.orders { display: grid; gap: 1rem; }
+.order-card { display: flex; gap: 1.2rem; align-items: flex-start; padding: 1rem; }
+.order-info { flex: 1; min-width: 0; }
+.order-title { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 1.05rem; }
+.order-fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 0.9rem; margin: 0.7rem 0; font-size: 0.9rem; }
+.order-fields dt { color: var(--muted); }
+.order-fields dd { margin: 0; overflow-wrap: anywhere; }
+.order-fields .pre { white-space: pre-wrap; }
+@media (max-width: 560px) { .order-card { flex-direction: column; } }

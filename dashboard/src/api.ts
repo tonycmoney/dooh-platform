@@ -104,6 +104,30 @@ export interface BackupList {
   backups: Backup[]
 }
 
+export type FileStatus = 'none' | 'queued' | 'ready' | 'failed'
+
+/** An ad order from the customer website. */
+export interface Order {
+  id: string
+  external_id: string
+  business_name: string
+  contact_name: string | null
+  email: string
+  phone: string | null
+  plan: string
+  plan_name: string | null
+  city: string | null
+  ad_choice: string | null
+  ad_text: string | null
+  notes: string | null
+  file_name: string | null
+  file_status: FileStatus
+  file_error: string | null
+  can_retry: boolean
+  media: Media | null
+  created_at: string
+}
+
 export interface Settings {
   auto_approve: boolean
   maintenance_pin_set: boolean
@@ -204,9 +228,13 @@ export function uploadProblem(file: File): string | null {
  * progress. The server converts HEIC → JPG and MOV → MP4, which happens after
  * the bytes are sent, so onProgress reports 1 and then the promise waits. */
 function upload(file: File, onProgress: (fraction: number) => void): Promise<Media> {
+  return uploadTo<Media>('/api/admin/media', file, onProgress)
+}
+
+function uploadTo<T>(path: string, file: File, onProgress: (fraction: number) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', '/api/admin/media')
+    xhr.open('POST', path)
     const token = getToken()
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
@@ -220,7 +248,7 @@ function upload(file: File, onProgress: (fraction: number) => void): Promise<Med
       } catch {
         /* non-JSON error */
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(data as Media)
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T)
       else {
         if (xhr.status === 401) onUnauthorized()
         reject(new ApiError(xhr.status, errorMessage(data, `Upload failed (${xhr.status})`)))
@@ -233,7 +261,12 @@ function upload(file: File, onProgress: (fraction: number) => void): Promise<Med
 
 export const api = {
   login: (password: string) => request<{ token: string }>('POST', '/api/admin/login', { password }),
-  stats: () => request<{ pending_approvals: number; plays_today: number }>('GET', '/api/admin/stats'),
+  stats: () =>
+    request<{ pending_approvals: number; plays_today: number; orders_to_review: number }>('GET', '/api/admin/stats'),
+  listOrders: () => request<Order[]>('GET', '/api/admin/orders'),
+  deleteOrder: (id: string) => request<void>('DELETE', `/api/admin/orders/${id}`),
+  retryOrderFile: (id: string) => request<Order>('POST', `/api/admin/orders/${id}/retry`),
+  attachOrderFile: (id: string, file: File) => uploadTo<Order>(`/api/admin/orders/${id}/file`, file, () => {}),
   getSettings: () => request<Settings>('GET', '/api/admin/settings'),
   putSettings: (auto_approve: boolean) => request<Settings>('PUT', '/api/admin/settings', { auto_approve }),
   setMaintenancePin: (pin: string) => request<Settings>('PUT', '/api/admin/maintenance-pin', { pin }),

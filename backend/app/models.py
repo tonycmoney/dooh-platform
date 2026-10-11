@@ -185,6 +185,45 @@ class PlayLog(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class FileStatus(str, enum.Enum):
+    none = "none"  # the customer chose "Design it for me", or no file was sent
+    queued = "queued"  # waiting to be downloaded and formatted
+    ready = "ready"  # formatted; see media_id
+    failed = "failed"  # see file_error
+
+
+class WebsiteOrder(Base):
+    """An ad order from the customer website. Its file becomes a media item
+    that always waits in the approval queue."""
+
+    __tablename__ = "website_orders"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    external_id: Mapped[str] = mapped_column(String(80), unique=True)  # the website's order ID
+    business_name: Mapped[str] = mapped_column(String(200))
+    contact_name: Mapped[str | None] = mapped_column(String(200))
+    email: Mapped[str] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    plan: Mapped[str] = mapped_column(String(80))
+    plan_name: Mapped[str | None] = mapped_column(String(300))
+    city: Mapped[str | None] = mapped_column(String(120))
+    ad_choice: Mapped[str | None] = mapped_column(String(80))
+    ad_text: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    file_name: Mapped[str | None] = mapped_column(String(300))
+    # Signed download link; cleared once the file is stored.
+    file_url: Mapped[str | None] = mapped_column(Text)
+    file_status: Mapped[FileStatus] = mapped_column(
+        Enum(FileStatus, name="order_file_status"), default=FileStatus.none
+    )
+    file_error: Mapped[str | None] = mapped_column(Text)
+    media_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("media.id", ondelete="SET NULL"))
+    media: Mapped["Media | None"] = relationship()
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

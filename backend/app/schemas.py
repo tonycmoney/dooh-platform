@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .models import ApprovalStatus, FitMode, MediaKind, VideoFit
+from .models import ApprovalStatus, FileStatus, FitMode, MediaKind, VideoFit
 
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -285,3 +285,55 @@ class PlayLogOut(ORM):
     started_at: datetime
     duration_ms: int
     received_at: datetime
+
+
+# --- Customer website ---------------------------------------------------------
+
+Line = Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)]
+LongText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
+
+
+class WebsiteOrderIn(BaseModel):
+    """An ad order from the customer website (see docs/website-orders.md)."""
+
+    order_id: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9_.-]{1,80}$")]
+    business_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    contact_name: Line | None = None
+    email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
+    phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+    plan: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+    plan_name: Line | None = None
+    city: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] | None = None
+    ad_choice: Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)] | None = None
+    ad_text: LongText | None = None
+    notes: LongText | None = None
+    file_url: Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)] | None = None
+    file_name: Line | None = None
+
+
+class WebsiteOrderAccepted(BaseModel):
+    order_id: str
+    received: bool = True
+    duplicate: bool = False
+    file: FileStatus
+
+
+class OrderOut(BaseModel):
+    id: uuid.UUID
+    external_id: str
+    business_name: str
+    contact_name: str | None
+    email: str
+    phone: str | None
+    plan: str
+    plan_name: str | None
+    city: str | None
+    ad_choice: str | None
+    ad_text: str | None
+    notes: str | None
+    file_name: str | None
+    file_status: FileStatus
+    file_error: str | None
+    can_retry: bool
+    media: MediaOut | None
+    created_at: datetime

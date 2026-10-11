@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     backup_dir: Path = REPO_DIR / "backups"
     backup_keep_days: int = 14
 
+    # Customer website orders (POST /api/website/orders). The website sends
+    # this key; files are only downloaded over HTTPS from these host suffixes.
+    website_api_key: str = ""
+    order_file_hosts: str = ".supabase.co"
+    order_file_max_bytes: int = 200 * 2**20
+
     # A screen counts as offline after this many seconds without a heartbeat
     # (3 missed heartbeats at the 60 s interval).
     offline_after_seconds: int = 180
@@ -62,6 +68,8 @@ class Settings(BaseSettings):
             problems.append(f"ADMIN_PASSWORD must be set to at least {MIN_PASSWORD_LENGTH} characters")
         if self.secret_key == DEV_SECRET or len(self.secret_key) < 32:
             problems.append("SECRET_KEY must be set to a random string of at least 32 characters")
+        if self.website_api_key and len(self.website_api_key) < 32:
+            problems.append("WEBSITE_API_KEY must be at least 32 characters (or unset to turn website orders off)")
         return problems
 
     def resolved_media_dir(self) -> Path:
