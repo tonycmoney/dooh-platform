@@ -1,5 +1,7 @@
 # Installing a screen at a business
 
+Printable one-page version: [Screen-Install-Checklist.pdf](Screen-Install-Checklist.pdf).
+
 **Bring:** the prepared tablet (see [tablet-setup.md](tablet-setup.md)), its wall charger, a 2 m+ cable (right-angle plug if it's in a frame), the mount or enclosure, cable clips, your phone signed in to the dashboard, the maintenance PIN, and your business card or a sticker with your number.
 
 **Before you leave:** the loop for this screen is built and its ads are **approved**.
