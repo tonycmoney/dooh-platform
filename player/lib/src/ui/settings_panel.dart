@@ -298,6 +298,10 @@ class _KioskSectionState extends State<KioskSection> {
                 },
                 child: const Text('Back to kiosk mode now'),
               ),
+            OutlinedButton(
+              onPressed: DeviceBridge.testCrash,
+              child: const Text('Test crash recovery'),
+            ),
             TextButton(
               style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
               onPressed: () async {

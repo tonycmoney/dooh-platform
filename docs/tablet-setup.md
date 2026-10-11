@@ -28,6 +28,7 @@ This builds the player signed with the key in `~/dooh-keys`. **Back that folder 
 ```sh
 scripts/provision_tablet.sh
 ```
+- [ ] If it asks to replace a player "signed with a different key", answer **y**. The tablet then needs pairing again.
 - [ ] It ends with "✓ Player is the device owner: kiosk mode enabled". If it stops, it tells you what to fix (usually an account still signed in).
 
 **4. Pair**
@@ -40,6 +41,7 @@ scripts/provision_tablet.sh
 - [ ] Press **Home**, swipe up, swipe down from the top, and long-press **power**. Nothing should happen.
 - [ ] Press **power** once. The screen turns off, then comes back on its own within about 3 seconds.
 - [ ] Hidden exit: tap the corners **top-left → top-right → bottom-right → bottom-left**, enter the maintenance PIN, and the panel opens. Tap **Back to playing**.
+- [ ] In the panel, tap **Test crash recovery**. The player closes and is back, locked, within a few seconds.
 - [ ] Unplug the USB cable, plug in the wall charger, and check the dashboard shows the screen **online** with the battery charging.
 - [ ] Optional, for extra safety: turn **USB debugging** off (corner pattern → PIN → **Exit kiosk for 15 min** → Developer options). Turn it back on when you update the player.
 

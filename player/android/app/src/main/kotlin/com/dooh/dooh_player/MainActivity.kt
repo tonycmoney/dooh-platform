@@ -48,9 +48,33 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private var resumed = false
+
     override fun onResume() {
         super.onResume()
+        resumed = true
         Kiosk.lockIfNeeded(this)
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
+    /** Kiosk watchdog: while the lock is briefly off (an app update, a crash
+     *  restart), another app's leftover screen can come to the front. The
+     *  player brings itself back. Not during maintenance mode. */
+    override fun onStop() {
+        super.onStop()
+        if (!Kiosk.isDeviceOwner(this) || Kiosk.inMaintenance(this) || isFinishing) return
+        handler.postDelayed({
+            if (!resumed && !Kiosk.inMaintenance(this)) {
+                startActivity(
+                    Intent(this, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                )
+            }
+        }, 1000)
     }
 
     override fun onDestroy() {
@@ -121,6 +145,11 @@ class MainActivity : FlutterActivity() {
                 "endMaintenance" -> {
                     Kiosk.endMaintenance(this)
                     result.success(null)
+                }
+                "testCrash" -> {
+                    // A real native crash, to check the restart on site.
+                    result.success(null)
+                    handler.postDelayed({ throw RuntimeException("Test crash from the maintenance panel") }, 300)
                 }
                 "releaseKiosk" -> {
                     Kiosk.release(this)

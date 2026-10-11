@@ -37,6 +37,9 @@ class DeviceBridge {
   static Future<void> endMaintenance() =>
       _channel.invokeMethod('endMaintenance');
 
+  /// Crashes the app on purpose; it should be back within seconds.
+  static Future<void> testCrash() => _channel.invokeMethod('testCrash');
+
   /// Gives up device ownership (kiosk off for good, app removable).
   static Future<void> releaseKiosk() => _channel.invokeMethod('releaseKiosk');
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../controller.dart';
+import '../device.dart';
 import 'setup_status.dart';
 
 class PairingScreen extends StatelessWidget {
@@ -15,6 +16,16 @@ class PairingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On a kiosk tablet the manual setup and the visible settings button are
+    // hidden: the corner pattern opens the panel instead.
+    return FutureBuilder<KioskStatus>(
+      future: DeviceBridge.kioskStatus(),
+      builder: (context, snap) =>
+          _build(context, kiosk: snap.data?.deviceOwner ?? true),
+    );
+  }
+
+  Widget _build(BuildContext context, {required bool kiosk}) {
     final code = controller.pairingCode;
     return Scaffold(
       backgroundColor: const Color(0xFF0F1115),
@@ -76,8 +87,10 @@ class PairingScreen extends StatelessWidget {
                           fontSize: 16,
                         ),
                       ),
-                    const SizedBox(height: 32),
-                    const SetupStatus(),
+                    if (!kiosk) ...[
+                      const SizedBox(height: 32),
+                      const SetupStatus(),
+                    ],
                     const SizedBox(height: 16),
                     Text(
                       'Device ${controller.deviceUid} · v${controller.appVersion} · ${controller.store.serverUrl}',
@@ -90,15 +103,16 @@ class PairingScreen extends StatelessWidget {
                 ),
               ),
             ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.settings, color: Colors.white38),
-                tooltip: 'Settings',
-                onPressed: onOpenSettings,
+            if (!kiosk)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.settings, color: Colors.white38),
+                  tooltip: 'Settings',
+                  onPressed: onOpenSettings,
+                ),
               ),
-            ),
           ],
         ),
       ),

@@ -3,12 +3,16 @@
 # player and make it the tablet's device owner, which enables kiosk mode.
 #
 #   scripts/build_player.sh https://your-server     # once per player version
-#   scripts/provision_tablet.sh                     # once per tablet
+#   scripts/provision_tablet.sh [--yes] [apk]       # once per tablet
+#
+# --yes answers "yes" to replacing a player signed with another key.
 #
 # Android only allows a device owner on a tablet with no accounts (remove the
 # Google account first) and a single user. See docs/tablet-setup.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+YES=no
+if [ "${1:-}" = --yes ]; then YES=yes; shift; fi
 APK="${1:-$ROOT/player/build/app/outputs/flutter-apk/app-release.apk}"
 PKG=com.dooh.dooh_player
 ADMIN=$PKG/.AdminReceiver
@@ -40,20 +44,24 @@ USERS=$(adb shell pm list users | grep -c "UserInfo{" || true)
 ok "No accounts, one user"
 
 if adb shell pm path "$PKG" >/dev/null 2>&1; then
-  if ! out=$(adb install -r "$APK" 2>&1); then
+  if ! out=$(adb install -r "$APK" 2>&1 </dev/null); then
     if echo "$out" | grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE"; then
       echo "The installed player was signed with a different key. Replacing it removes its pairing:"
       echo "you'll pair the tablet again (choose \"Replaces an existing screen\" to keep its history)."
-      read -r -p "Uninstall the old player and continue? [y/N] " answer
-      [ "$answer" = y ] || die "Stopped. Nothing was changed."
-      adb uninstall "$PKG" >/dev/null
-      adb install "$APK" >/dev/null
+      answer=$YES
+      if [ "$answer" != yes ]; then
+        read -r -p "Uninstall the old player and continue? [y/N] " answer </dev/tty || answer=n
+        [ "$answer" = y ] && answer=yes
+      fi
+      [ "$answer" = yes ] || die "Stopped. Nothing was changed."
+      adb uninstall "$PKG" >/dev/null </dev/null
+      adb install "$APK" >/dev/null </dev/null
     else
       die "Install failed: $out"
     fi
   fi
 else
-  adb install "$APK" >/dev/null
+  adb install "$APK" >/dev/null </dev/null
 fi
 ok "Player installed"
 
