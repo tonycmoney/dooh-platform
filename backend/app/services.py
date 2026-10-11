@@ -1,5 +1,7 @@
+import base64
 import hashlib
 import json
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -18,6 +20,34 @@ FILES_PREFIX = "/files"
 def get_auto_approve(db: Session) -> bool:
     row = db.get(Setting, "auto_approve")
     return row is None or row.value == "true"  # default: on
+
+
+# The PIN that opens the hidden maintenance panel on tablets. Only a salted
+# PBKDF2 hash is stored and sent to tablets, which check PINs offline.
+PIN_ITERATIONS = 120_000
+
+
+def get_maintenance_pin(db: Session) -> schemas.MaintenancePin | None:
+    row = db.get(Setting, "maintenance_pin")
+    return schemas.MaintenancePin.model_validate_json(row.value) if row else None
+
+
+def set_maintenance_pin(db: Session, pin: str | None) -> None:
+    row = db.get(Setting, "maintenance_pin")
+    if pin is None:
+        if row:
+            db.delete(row)
+    else:
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, PIN_ITERATIONS)
+        value = schemas.MaintenancePin(
+            salt=base64.b64encode(salt).decode(), hash=digest.hex(), iterations=PIN_ITERATIONS
+        ).model_dump_json()
+        if row:
+            row.value = value
+        else:
+            db.add(Setting(key="maintenance_pin", value=value))
+    db.commit()
 
 
 def set_auto_approve(db: Session, value: bool) -> None:

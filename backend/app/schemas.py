@@ -52,10 +52,19 @@ class HeartbeatIn(BaseModel):
     manifest_version: str | None = None
 
 
+class MaintenancePin(BaseModel):
+    """PBKDF2-HMAC-SHA256 of the PIN; tablets verify PINs against it offline."""
+
+    salt: str  # base64
+    hash: str  # hex
+    iterations: int
+
+
 class HeartbeatOut(BaseModel):
     manifest_version: str
     name: str | None
     venue_name: str | None
+    maintenance_pin: MaintenancePin | None = None
 
 
 class TextSlideProps(BaseModel):
@@ -134,6 +143,11 @@ class BackupsOut(BaseModel):
 
 class SettingsOut(BaseModel):
     auto_approve: bool
+    maintenance_pin_set: bool = False
+
+
+class MaintenancePinIn(BaseModel):
+    pin: Annotated[str, StringConstraints(pattern=r"^[0-9]{4,8}$")]
 
 
 class SettingsIn(BaseModel):
@@ -226,6 +240,9 @@ class PairIn(BaseModel):
     venue_name: ShortText
     venue_address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
     loop_id: uuid.UUID | None = None
+    # Swapping in a new tablet: it takes over this screen's name, venue, loop
+    # and play history, and the old tablet's pairing is removed.
+    replaces_device_id: uuid.UUID | None = None
 
 
 class DeviceUpdate(BaseModel):

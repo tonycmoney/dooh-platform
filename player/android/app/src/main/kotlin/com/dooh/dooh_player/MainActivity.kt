@@ -2,11 +2,17 @@ package com.dooh.dooh_player
 
 import android.annotation.SuppressLint
 import android.app.role.RoleManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.view.WindowInsets
@@ -18,11 +24,48 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
+    private val handler = Handler(Looper.getMainLooper())
+
+    /** In kiosk mode the screen stays on: if someone presses the power
+     *  button, it comes back on a few seconds later. */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (!Kiosk.isDeviceOwner(context) || Kiosk.inMaintenance(context)) return
+            handler.postDelayed({ wakeScreen() }, 3000)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PlayerApplication.cancelBackupRestart(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
+        Kiosk.applyPolicies(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Kiosk.lockIfNeeded(this)
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(screenOff)
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wakeScreen() {
+        val power = getSystemService(PowerManager::class.java) ?: return
+        if (power.isInteractive) return
+        power.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "dooh:wake"
+        ).acquire(3000)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -65,6 +108,34 @@ class MainActivity : FlutterActivity() {
                 "requestDefaultHome" -> {
                     requestDefaultHome()
                     result.success(null)
+                }
+                "kioskStatus" -> result.success(mapOf(
+                    "deviceOwner" to Kiosk.isDeviceOwner(this),
+                    "locked" to Kiosk.isLocked(this),
+                    "maintenance" to Kiosk.inMaintenance(this),
+                ))
+                "startMaintenance" -> {
+                    Kiosk.startMaintenance(this, call.argument<Int>("minutes") ?: 15)
+                    result.success(null)
+                }
+                "endMaintenance" -> {
+                    Kiosk.endMaintenance(this)
+                    result.success(null)
+                }
+                "releaseKiosk" -> {
+                    Kiosk.release(this)
+                    result.success(null)
+                }
+                "verifyPin" -> {
+                    // PBKDF2 takes a moment: keep it off the UI thread.
+                    val pin = call.argument<String>("pin") ?: ""
+                    val salt = call.argument<String>("salt") ?: ""
+                    val hash = call.argument<String>("hash") ?: ""
+                    val iterations = call.argument<Int>("iterations") ?: 0
+                    Thread {
+                        val ok = Kiosk.verifyPin(pin, salt, hash, iterations)
+                        handler.post { result.success(ok) }
+                    }.start()
                 }
                 else -> result.notImplemented()
             }

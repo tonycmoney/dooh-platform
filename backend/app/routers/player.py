@@ -106,6 +106,7 @@ def heartbeat(
         manifest_version=services.build_manifest(db, device.loop_id).version,
         name=device.name,
         venue_name=device.venue_name,
+        maintenance_pin=services.get_maintenance_pin(db),
     )
 
 

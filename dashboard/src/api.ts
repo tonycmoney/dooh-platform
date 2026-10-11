@@ -104,6 +104,11 @@ export interface BackupList {
   backups: Backup[]
 }
 
+export interface Settings {
+  auto_approve: boolean
+  maintenance_pin_set: boolean
+}
+
 export interface PlayLog {
   id: string
   media_title: string | null
@@ -229,9 +234,10 @@ function upload(file: File, onProgress: (fraction: number) => void): Promise<Med
 export const api = {
   login: (password: string) => request<{ token: string }>('POST', '/api/admin/login', { password }),
   stats: () => request<{ pending_approvals: number; plays_today: number }>('GET', '/api/admin/stats'),
-  getSettings: () => request<{ auto_approve: boolean }>('GET', '/api/admin/settings'),
-  putSettings: (auto_approve: boolean) =>
-    request<{ auto_approve: boolean }>('PUT', '/api/admin/settings', { auto_approve }),
+  getSettings: () => request<Settings>('GET', '/api/admin/settings'),
+  putSettings: (auto_approve: boolean) => request<Settings>('PUT', '/api/admin/settings', { auto_approve }),
+  setMaintenancePin: (pin: string) => request<Settings>('PUT', '/api/admin/maintenance-pin', { pin }),
+  clearMaintenancePin: () => request<Settings>('DELETE', '/api/admin/maintenance-pin'),
 
   listMedia: (status?: ApprovalStatus) =>
     request<Media[]>('GET', `/api/admin/media${status ? `?status=${status}` : ''}`),
@@ -263,6 +269,7 @@ export const api = {
     venue_name: string
     venue_address: string
     loop_id?: string | null
+    replaces_device_id?: string | null
   }) => request<Screen>('POST', '/api/admin/screens/pair', body),
   updateScreen: (
     id: string,

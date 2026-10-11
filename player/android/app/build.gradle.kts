@@ -1,7 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing key, kept outside the repo (default ~/dooh-keys; override
+// with DOOH_KEY_PROPERTIES). Kiosk tablets only accept updates signed with it.
+val keyPropertiesFile = file(
+    System.getenv("DOOH_KEY_PROPERTIES") ?: "${System.getProperty("user.home")}/dooh-keys/key.properties"
+)
+val releaseKey = Properties().apply {
+    if (keyPropertiesFile.isFile) keyPropertiesFile.inputStream().use { load(it) }
 }
 
 android {
@@ -29,11 +40,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseKey.isNotEmpty()) {
+            create("release") {
+                storeFile = file(releaseKey.getProperty("storeFile"))
+                storePassword = releaseKey.getProperty("storePassword")
+                keyAlias = releaseKey.getProperty("keyAlias")
+                keyPassword = releaseKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without the key file (e.g. another developer's machine) release
+            // builds fall back to the debug key; tablets reject those as updates.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }

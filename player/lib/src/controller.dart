@@ -152,6 +152,7 @@ class PlayerController extends ChangeNotifier {
       _contactOk();
       store.screenName = result.name;
       store.venueName = result.venueName;
+      store.maintenancePin = result.maintenancePin;
       // Loop changed on the dashboard: fetch it now instead of waiting.
       if (result.manifestVersion != cache.current.value.version) {
         unawaited(_syncTick());

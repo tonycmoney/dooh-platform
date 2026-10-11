@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Small persistent settings. The device token is the tablet's credential.
@@ -35,6 +37,26 @@ class Store {
 
   String? get venueName => _prefs.getString('venue_name');
   set venueName(String? value) => _set('venue_name', value);
+
+  /// Hash of the dashboard's maintenance PIN, kept so it can be checked
+  /// offline. Null when the dashboard has none set.
+  Map<String, dynamic>? get maintenancePin {
+    final raw = _prefs.getString('maintenance_pin');
+    return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  set maintenancePin(Map<String, dynamic>? value) =>
+      _set('maintenance_pin', value == null ? null : jsonEncode(value));
+
+  /// Wrong-PIN lockout, so it survives an app restart.
+  DateTime? get pinLockedUntil {
+    final ms = _prefs.getInt('pin_locked_until');
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  set pinLockedUntil(DateTime? value) => value == null
+      ? _prefs.remove('pin_locked_until')
+      : _prefs.setInt('pin_locked_until', value.millisecondsSinceEpoch);
 
   void _set(String key, String? value) {
     if (value == null) {

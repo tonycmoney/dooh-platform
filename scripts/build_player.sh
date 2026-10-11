@@ -17,6 +17,7 @@ flutter build apk --release --dart-define=SERVER_URL="${URL%/}"
 APK="$ROOT/player/build/app/outputs/flutter-apk/app-release.apk"
 echo "Built $APK"
 
+export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools:/opt/homebrew/share/android-commandlinetools/platform-tools"
 if command -v adb >/dev/null && adb get-state >/dev/null 2>&1; then
   adb install -r "$APK"
   adb shell am start -n com.dooh.dooh_player/.MainActivity >/dev/null

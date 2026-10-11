@@ -62,18 +62,101 @@ function Battery({ level, charging }: { level: number | null; charging: boolean 
   )
 }
 
-function PairDialog({ loops, onClose, onPaired }: { loops: LoopSummary[]; onClose: () => void; onPaired: () => void }) {
-  const [form, setForm] = useState({ pairing_code: '', name: '', venue_name: '', venue_address: '', loop_id: '' })
+/** The PIN technicians enter on a tablet after the secret tap pattern
+ * (corners clockwise from top-left) to open its maintenance panel. */
+function MaintenancePinCard() {
+  const [isSet, setIsSet] = useState<boolean | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [pin, setPin] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.getSettings().then((s) => setIsSet(s.maintenance_pin_set)).catch(() => {})
+  }, [])
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    try {
+      const s = await api.setMaintenancePin(pin)
+      setIsSet(s.maintenance_pin_set)
+      setEditing(false)
+      setPin('')
+      setMessage('PIN saved. Tablets pick it up within a minute.')
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  if (isSet === null) return null
+  return (
+    <div className={`card pin-card ${isSet ? '' : 'pin-missing'}`}>
+      <div>
+        <strong>Tablet maintenance PIN</strong>{' '}
+        {isSet ? <span className="ok-text">✓ set</span> : <span className="warn-inline">⚠ not set: anyone who finds the tap pattern can open a tablet's settings</span>}
+        <div className="muted small-text">
+          To exit kiosk mode on a tablet: tap its four corners clockwise, starting top-left, then enter this PIN.
+        </div>
+        {message && <div className="ok-text small-text">{message}</div>}
+      </div>
+      {editing ? (
+        <form className="pin-form" onSubmit={save}>
+          <input
+            type="password"
+            inputMode="numeric"
+            autoComplete="new-password"
+            placeholder="4–8 digits"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+            autoFocus
+          />
+          <button className="primary small" disabled={pin.length < 4}>Save PIN</button>
+          <button type="button" className="small" onClick={() => { setEditing(false); setPin('') }}>Cancel</button>
+          {error && <span className="error small-text">{error}</span>}
+        </form>
+      ) : (
+        <button className="small" onClick={() => { setEditing(true); setMessage('') }}>{isSet ? 'Change PIN' : 'Set PIN'}</button>
+      )}
+    </div>
+  )
+}
+
+function PairDialog({ loops, screens, onClose, onPaired }: {
+  loops: LoopSummary[]
+  screens: Screen[]
+  onClose: () => void
+  onPaired: () => void
+}) {
+  const [form, setForm] = useState({ pairing_code: '', name: '', venue_name: '', venue_address: '', loop_id: '', replaces: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
 
+  /** Swapping tablets: start from the replaced screen's details. */
+  function chooseReplaced(id: string) {
+    const old = screens.find((s) => s.id === id)
+    setForm((f) => ({
+      ...f,
+      replaces: id,
+      ...(old ? { name: old.name ?? '', venue_name: old.venue_name ?? '', venue_address: old.venue_address ?? '' } : {}),
+    }))
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault()
+    const old = screens.find((s) => s.id === form.replaces)
+    if (old && !confirm(`Replace “${old.name}”? The new tablet takes over its loop and play history, and the old tablet is unpaired.`)) return
     setBusy(true)
     setError('')
     try {
-      await api.pairScreen({ ...form, pairing_code: form.pairing_code.trim().toUpperCase(), loop_id: form.loop_id || null })
+      const { replaces, ...rest } = form
+      await api.pairScreen({
+        ...rest,
+        pairing_code: form.pairing_code.trim().toUpperCase(),
+        loop_id: form.loop_id || null,
+        replaces_device_id: replaces || null,
+      })
       onPaired()
     } catch (err) {
       setError((err as Error).message)
@@ -96,6 +179,15 @@ function PairDialog({ loops, onClose, onPaired }: { loops: LoopSummary[]; onClos
             required
           />
         </label>
+        {screens.length > 0 && (
+          <label>
+            Replaces an existing screen? (swapping a tablet)
+            <select value={form.replaces} onChange={(e) => chooseReplaced(e.target.value)}>
+              <option value="">No, this is a new screen</option>
+              {screens.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.venue_name}</option>)}
+            </select>
+          </label>
+        )}
         <label>
           Screen name
           <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Front counter" required />
@@ -109,7 +201,7 @@ function PairDialog({ loops, onClose, onPaired }: { loops: LoopSummary[]; onClos
           <input value={form.venue_address} onChange={(e) => set('venue_address', e.target.value)} placeholder="123 Main St, Springfield" />
         </label>
         <label>
-          Loop to play (optional)
+          {form.replaces ? 'Loop to play (empty = keep the replaced screen’s loop)' : 'Loop to play (optional)'}
           <select value={form.loop_id} onChange={(e) => set('loop_id', e.target.value)}>
             <option value="">None yet</option>
             {loops.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -253,6 +345,8 @@ export default function Screens() {
       </header>
       {error && <p className="error">{error}</p>}
 
+      <MaintenancePinCard />
+
       <ScreensMap screens={screens} />
 
       {screens.length === 0 ? (
@@ -302,7 +396,7 @@ export default function Screens() {
         </div>
       )}
 
-      {pairing && <PairDialog loops={loops} onClose={() => setPairing(false)} onPaired={() => { setPairing(false); load() }} />}
+      {pairing && <PairDialog loops={loops} screens={screens} onClose={() => setPairing(false)} onPaired={() => { setPairing(false); load() }} />}
       {editing && (
         <EditDialog screen={editing} loops={loops} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load() }} />
       )}

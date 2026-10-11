@@ -31,10 +31,19 @@ class PairingStatus {
 }
 
 class HeartbeatResult {
-  HeartbeatResult({required this.manifestVersion, this.name, this.venueName});
+  HeartbeatResult({
+    required this.manifestVersion,
+    this.name,
+    this.venueName,
+    this.maintenancePin,
+  });
   final String manifestVersion;
   final String? name;
   final String? venueName;
+
+  /// The dashboard's maintenance PIN as {salt, hash, iterations}, or null
+  /// when none is set.
+  final Map<String, dynamic>? maintenancePin;
 }
 
 /// Talks to the FastAPI backend's /api/player endpoints.
@@ -120,6 +129,7 @@ class PlayerApi {
       manifestVersion: json['manifest_version'] as String,
       name: json['name'] as String?,
       venueName: json['venue_name'] as String?,
+      maintenancePin: json['maintenance_pin'] as Map<String, dynamic>?,
     );
   }
 

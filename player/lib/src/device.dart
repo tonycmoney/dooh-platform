@@ -18,4 +18,47 @@ class DeviceBridge {
 
   static Future<void> requestDefaultHome() =>
       _channel.invokeMethod('requestDefaultHome');
+
+  // --- Kiosk (Kiosk.kt) ---
+
+  static Future<KioskStatus> kioskStatus() async {
+    final m = await _channel.invokeMapMethod<String, bool>('kioskStatus') ?? {};
+    return KioskStatus(
+      deviceOwner: m['deviceOwner'] ?? false,
+      locked: m['locked'] ?? false,
+      maintenance: m['maintenance'] ?? false,
+    );
+  }
+
+  /// Pauses kiosk mode for [minutes] and opens Android Settings.
+  static Future<void> startMaintenance(int minutes) =>
+      _channel.invokeMethod('startMaintenance', {'minutes': minutes});
+
+  static Future<void> endMaintenance() =>
+      _channel.invokeMethod('endMaintenance');
+
+  /// Gives up device ownership (kiosk off for good, app removable).
+  static Future<void> releaseKiosk() => _channel.invokeMethod('releaseKiosk');
+
+  static Future<bool> verifyPin(String pin, Map<String, dynamic> hash) async =>
+      await _channel.invokeMethod<bool>('verifyPin', {
+        'pin': pin,
+        'salt': hash['salt'],
+        'hash': hash['hash'],
+        'iterations': hash['iterations'],
+      }) ??
+      false;
+}
+
+class KioskStatus {
+  const KioskStatus({
+    required this.deviceOwner,
+    required this.locked,
+    required this.maintenance,
+  });
+
+  /// Set up with scripts/provision_tablet.sh; everything else needs it.
+  final bool deviceOwner;
+  final bool locked;
+  final bool maintenance;
 }

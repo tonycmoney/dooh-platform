@@ -7,6 +7,8 @@ import 'src/content_cache.dart';
 import 'src/controller.dart';
 import 'src/play_log.dart';
 import 'src/store.dart';
+import 'src/device.dart';
+import 'src/ui/maintenance_gate.dart';
 import 'src/ui/pairing_screen.dart';
 import 'src/ui/player_view.dart';
 import 'src/ui/settings_panel.dart';
@@ -68,17 +70,13 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   bool _settingsOpen = false;
-  final List<DateTime> _cornerTaps = [];
+  bool _pinOpen = false;
 
-  void _onCornerTap() {
-    final now = DateTime.now();
-    _cornerTaps
-      ..add(now)
-      ..removeWhere((t) => now.difference(t) > const Duration(seconds: 3));
-    if (_cornerTaps.length >= 5) {
-      _cornerTaps.clear();
-      setState(() => _settingsOpen = true);
-    }
+  /// After the secret corner pattern: ask for the dashboard's PIN, or open
+  /// straight away if none has been set yet (e.g. a tablet being set up).
+  void _requestSettings() {
+    final hasPin = widget.controller.store.maintenancePin != null;
+    setState(() => hasPin ? _pinOpen = true : _settingsOpen = true);
   }
 
   @override
@@ -86,7 +84,9 @@ class _RootState extends State<_Root> {
     return PopScope(
       canPop: false, // the Back button never leaves the player
       onPopInvokedWithResult: (didPop, _) {
-        if (_settingsOpen) setState(() => _settingsOpen = false);
+        if (_settingsOpen || _pinOpen) {
+          setState(() => _settingsOpen = _pinOpen = false);
+        }
       },
       child: ListenableBuilder(
         listenable: widget.controller,
@@ -96,7 +96,7 @@ class _RootState extends State<_Root> {
             Phase.starting => const ColoredBox(color: Colors.black),
             Phase.pairing => PairingScreen(
               controller: c,
-              onOpenSettings: () => setState(() => _settingsOpen = true),
+              onOpenSettings: _requestSettings,
             ),
             Phase.playing => PlayerView(controller: c),
           };
@@ -104,22 +104,28 @@ class _RootState extends State<_Root> {
             fit: StackFit.expand,
             children: [
               body,
-              if (c.phase == Phase.playing)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  width: 120,
-                  height: 120,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _onCornerTap,
-                  ),
-                ),
+              if (!_settingsOpen && !_pinOpen)
+                CornerTapZones(onPattern: _requestSettings),
               if (c.phase == Phase.playing && c.lastError != null)
                 const Positioned(
                   right: 10,
                   bottom: 10,
                   child: Icon(Icons.cloud_off, color: Colors.white24, size: 18),
+                ),
+              if (_pinOpen)
+                PinPad(
+                  lockedUntil: c.store.pinLockedUntil,
+                  onLockout: (until) => c.store.pinLockedUntil = until,
+                  verify: (pin) async {
+                    final hash = c.store.maintenancePin;
+                    return hash != null &&
+                        await DeviceBridge.verifyPin(pin, hash);
+                  },
+                  onSuccess: () => setState(() {
+                    _pinOpen = false;
+                    _settingsOpen = true;
+                  }),
+                  onCancel: () => setState(() => _pinOpen = false),
                 ),
               if (_settingsOpen)
                 SettingsPanel(

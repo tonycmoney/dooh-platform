@@ -69,15 +69,36 @@ def login(body: schemas.LoginIn, request: Request):
     return schemas.LoginOut(token=create_admin_token())
 
 
+def _settings_out(db: Session) -> schemas.SettingsOut:
+    return schemas.SettingsOut(
+        auto_approve=services.get_auto_approve(db),
+        maintenance_pin_set=services.get_maintenance_pin(db) is not None,
+    )
+
+
 @router.get("/settings", response_model=schemas.SettingsOut)
 def get_settings(db: Session = Depends(get_db)):
-    return schemas.SettingsOut(auto_approve=services.get_auto_approve(db))
+    return _settings_out(db)
 
 
 @router.put("/settings", response_model=schemas.SettingsOut)
 def put_settings(body: schemas.SettingsIn, db: Session = Depends(get_db)):
     services.set_auto_approve(db, body.auto_approve)
-    return schemas.SettingsOut(auto_approve=body.auto_approve)
+    return _settings_out(db)
+
+
+@router.put("/maintenance-pin", response_model=schemas.SettingsOut)
+def set_maintenance_pin(body: schemas.MaintenancePinIn, db: Session = Depends(get_db)):
+    """Sets the PIN for the tablets' hidden maintenance panel. Tablets pick
+    it up with their next heartbeat (within a minute)."""
+    services.set_maintenance_pin(db, body.pin)
+    return _settings_out(db)
+
+
+@router.delete("/maintenance-pin", response_model=schemas.SettingsOut)
+def clear_maintenance_pin(db: Session = Depends(get_db)):
+    services.set_maintenance_pin(db, None)
+    return _settings_out(db)
 
 
 # --- Media --------------------------------------------------------------------
@@ -432,6 +453,11 @@ def pair_screen(body: schemas.PairIn, db: Session = Depends(get_db)):
             "No tablet is showing that code. Check the code on the tablet screen.",
         )
     _check_loop(db, body.loop_id)
+    replaced = None
+    if body.replaces_device_id:
+        replaced = _get_device(db, body.replaces_device_id)
+        if replaced.id == device.id:
+            raise bad_request("A tablet can't replace itself.")
 
     token = new_secret()
     device.token_hash = sha256_hex(token)
@@ -443,7 +469,17 @@ def pair_screen(body: schemas.PairIn, db: Session = Depends(get_db)):
     device.venue_address = body.venue_address
     if body.loop_id:
         device.loop_id = body.loop_id
+    if replaced is not None:
+        # Keep the screen's history and settings under the new tablet.
+        db.execute(update(PlayLog).where(PlayLog.device_id == replaced.id).values(device_id=device.id))
+        if not body.loop_id:
+            device.loop_id = replaced.loop_id
+        for field in ("latitude", "longitude", "location_accuracy_m", "location_at"):
+            if getattr(device, field) is None:
+                setattr(device, field, getattr(replaced, field))
+        db.delete(replaced)
     db.commit()
+    db.refresh(device)
     return services.device_out(db, device)
 
 

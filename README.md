@@ -51,14 +51,22 @@ flutter run --release -d <device-id>
 # or: flutter build apk --release && adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-### One-time tablet setup (Android 10 and later)
+### Kiosk mode (public screens)
 
-Android doesn't let apps start themselves in the background. Two settings, done once by hand, let the player start after a reboot and restart after a crash. The pairing screen shows both as buttons:
+For a tablet in a business, run `scripts/provision_tablet.sh`. It installs the player and makes it the tablet's **device owner**, which turns on kiosk mode:
+- Android lock task mode, with no Home, Recents, notifications or power menu.
+- Auto-start after boot, a power cut or a crash.
+- The screen always on.
+- System error dialogs off.
+- System updates only between 2:00 and 5:00 am.
 
-1. **Display over other apps**: turn this on for DOOH Player.
-2. **Default Home app**: choose DOOH Player. Android then brings it back after reboots, crashes and Home presses.
+Android requires the tablet to have no accounts signed in. Step-by-step checklist: [docs/tablet-setup.md](docs/tablet-setup.md).
 
-To get back into tablet settings after that, tap the **top-left corner 5 times** while content is playing. This opens the player's settings panel.
+**Hidden exit:** tap the four corners clockwise from top-left, then enter the maintenance PIN you set on the dashboard's Screens page. Tablets store only a salted PBKDF2 hash and check it offline. The panel can pause kiosk mode for 15 minutes or remove it entirely.
+
+Release builds are signed with the key in `~/dooh-keys` (override with `DOOH_KEY_PROPERTIES`). It's never in the repo. Back it up: kiosk tablets only accept updates signed with that key.
+
+Without kiosk mode (e.g. a test tablet), the player still runs. Two settings, set once by hand, let it start after a reboot and restart after a crash: **Display over other apps**, and DOOH Player as the **Default Home app**. The settings panel shows both.
 
 ## Deploy to the cloud (Railway)
 
@@ -90,7 +98,7 @@ The image sets `ENVIRONMENT=production`, so the server refuses to start with a m
 | Offline playback | Every file is downloaded and its SHA-256 checked before a new loop goes live; files are cached on the tablet |
 | Heartbeat | `POST /api/player/heartbeat` every 60 s with battery, GPS, app version and what's playing now. The screen shows as offline after 180 s (3 missed heartbeats). |
 | Proof of play | Each play gets a UUID on the tablet and is queued on disk. `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
-| Kiosk mode | Fullscreen portrait, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
+| Kiosk mode | Device owner + lock task (see above). Fullscreen portrait, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
 | Crash restart | `PlayerApplication.kt` catches crashes and relaunches the app through a separate restarter process, with an alarm as backup |
 | Uploads from Photos | Accepts JPG, PNG, HEIC, MP4 and MOV, including HEVC, HDR and 4K. The upload is kept untouched as the original, in `ORIGINALS_DIR`, which is never served. The dashboard sends the raw file bytes with an `X-Filename` header; multipart uploads with any field name also work. |
 | Screen format | Every image, video and text slide becomes a formatted file at exactly 1080 × 1920 with a 12 px white border, and that's all tablets download. **Fit** (the default): content that's already 9:16 (within 2%) fills the frame. Other shapes are shown whole, never stretched or cut, over a blurred, darkened copy of themselves. **Fill**: covers the frame and crops the edges. Switching an item between Fit and Fill reformats it from the original. Text slides are rendered on the server in Inter (SIL OFL, `backend/app/fonts/`), sized to fill the slide. Videos come out as H.264 MP4 at no more than 30 fps, with 48 kHz AAC audio and HDR tone-mapped to SDR. Tablets of another shape (the KB10 is 10:16) show the 9:16 frame whole, padded in white. |
