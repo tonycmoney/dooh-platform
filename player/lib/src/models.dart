@@ -44,6 +44,7 @@ class ManifestItem {
     this.mediaDurationSeconds,
     this.width,
     this.height,
+    this.framed = false,
     this.text,
   });
 
@@ -59,6 +60,10 @@ class ManifestItem {
   final double? mediaDurationSeconds;
   final int? width;
   final int? height;
+
+  /// Already formatted by the server (1080x1920 with its own white border):
+  /// on a screen of another shape, pad it with white rather than a blur.
+  final bool framed;
   final TextSlide? text;
 
   /// Width / height of the image or video, when known.
@@ -91,6 +96,7 @@ class ManifestItem {
     mediaDurationSeconds: (json['media_duration_seconds'] as num?)?.toDouble(),
     width: json['width'] as int?,
     height: json['height'] as int?,
+    framed: json['framed'] as bool? ?? false,
     text: json['text'] == null
         ? null
         : TextSlide.fromJson(json['text'] as Map<String, dynamic>),
@@ -109,6 +115,7 @@ class ManifestItem {
     'media_duration_seconds': mediaDurationSeconds,
     'width': width,
     'height': height,
+    'framed': framed,
     'text': text?.toJson(),
   };
 }

@@ -134,7 +134,7 @@ tr.clickable:hover td { background: var(--surface-2); }
 .media-meta { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
 .media-meta strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: auto; }
-.frame { position: relative; overflow: hidden; background: #000; border-radius: 6px; flex-shrink: 0; display: grid; place-items: center; }
+.frame { position: relative; overflow: hidden; background: #000; border-radius: 6px; flex-shrink: 0; display: grid; place-items: center; box-shadow: 0 0 0 1px var(--border); }
 .frame-blur { position: absolute; inset: -12%; background-size: cover; background-position: center; filter: blur(14px) brightness(0.65); }
 .frame-content { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .frame-label { position: relative; color: #888; font-size: 0.7rem; }
@@ -200,3 +200,11 @@ tr.clickable:hover td { background: var(--surface-2); }
 }
 .ok-text { color: var(--ok); }
 .upload.failed .error { margin: 0; }
+
+/* Formatted-version preview and Fit/Fill selector */
+button.card-frame { padding: 0; border: 0; background: none; cursor: zoom-in; }
+.fit-select { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
+.fit-select select { font-size: 0.85rem; padding: 0.2rem 0.35rem; }
+.format-preview { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+.format-preview-info { flex: 1 1 240px; min-width: 0; }
+.format-preview-info label { display: flex; flex-direction: column; gap: 0.25rem; font-weight: 600; }

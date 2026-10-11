@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Media } from './api'
-import { CANVAS_WIDTH, PORTRAIT, RECOMMENDED_SIZE, isLandscape, needsBars } from './portrait'
+import { api, type FitMode, type Media } from './api'
+import { BORDER_PX, CANVAS_WIDTH, PORTRAIT, RECOMMENDED_SIZE, isLandscape, needsBars } from './portrait'
 
 export function TextSlidePreview({
   text,
@@ -46,7 +46,7 @@ function PortraitFrame({ src, width, children }: { src: string | null; width: nu
 }
 
 export function MediaThumb({ media, width = 30 }: { media: Media; width?: number }) {
-  if (media.kind === 'text') {
+  if (media.kind === 'text' && !media.thumbnail_url) {
     return (
       <TextSlidePreview
         text={media.text ?? ''}
@@ -73,16 +73,105 @@ export function KindTag({ kind }: { kind: Media['kind'] }) {
 }
 
 export function LandscapeWarning({ media, compact = false }: { media: Media; compact?: boolean }) {
-  if (!isLandscape(media)) return null
+  if (media.kind === 'text' || !isLandscape(media) || media.fit_mode === 'fill') return null
+  const size = `${media.source_width ?? media.width}×${media.source_height ?? media.height}`
   return compact ? (
-    <span className="warn-tag" title={`Landscape (${media.width}×${media.height}). Shows with blurred bars on portrait screens. Recommended: ${RECOMMENDED_SIZE}.`}>
+    <span className="warn-tag" title={`Landscape original (${size}): shown whole over a blurred background. Choose Fill to crop it to the screen, or upload ${RECOMMENDED_SIZE} px.`}>
       ⚠ landscape
     </span>
   ) : (
     <div className="warn">
-      ⚠ Landscape ({media.width}×{media.height}). It will play centered with blurred bars above and below. For a
-      full-screen ad, use {RECOMMENDED_SIZE} px portrait.
+      ⚠ Landscape original ({size}). It's shown whole in the middle of the screen over a blurred background. For a
+      full-screen ad, upload {RECOMMENDED_SIZE} px portrait, or choose Fill if cropping the sides is fine.
     </div>
+  )
+}
+
+const FIT_LABELS: Record<FitMode, string> = {
+  fit: 'Fit (show everything)',
+  fill: 'Fill (crop edges)',
+}
+
+/** Fit/Fill for an image or video. Changing it reformats the item on the server. */
+export function FitModeSelect({ media, onChanged }: { media: Media; onChanged: (m: Media) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  if (media.kind === 'text') return null
+
+  async function change(mode: FitMode) {
+    setBusy(true)
+    setError('')
+    try {
+      onChanged(await api.setFitMode(media.id, mode))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span className="fit-select">
+      <select value={media.fit_mode} disabled={busy} onChange={(e) => change(e.target.value as FitMode)}
+        aria-label="How the item fills the screen">
+        {(Object.keys(FIT_LABELS) as FitMode[]).map((mode) => (
+          <option key={mode} value={mode}>{FIT_LABELS[mode]}</option>
+        ))}
+      </select>
+      {busy && <span className="muted small-text">Reformatting{media.kind === 'video' ? ' (videos take a minute)' : ''}…</span>}
+      {error && <span className="error small-text">{error}</span>}
+    </span>
+  )
+}
+
+/** The formatted file exactly as screens will play it, with its Fit/Fill
+ * option, so an item can be checked before it goes into a loop. */
+export function FormatPreview({ media, onChanged, onClose }: {
+  media: Media
+  onChanged: (m: Media) => void
+  onClose: () => void
+}) {
+  const width = 270
+  const src = media.url ?? media.thumbnail_url
+  return (
+    <Modal title={media.title} onClose={onClose} wide>
+      <div className="format-preview">
+        <div className="frame" style={{ width, height: width / PORTRAIT }}>
+          {media.kind === 'video' && media.url ? (
+            <video key={media.url} className="frame-content" src={media.url} autoPlay muted loop playsInline controls />
+          ) : src ? (
+            <img key={src} className="frame-content" src={src} alt="" />
+          ) : (
+            <MediaThumb media={media} width={width} />
+          )}
+        </div>
+        <div className="format-preview-info">
+          <p>
+            <strong>As screens show it:</strong> {CANVAS_WIDTH} × {CANVAS_WIDTH / PORTRAIT} px with a {BORDER_PX} px
+            white border.
+          </p>
+          {media.format_note && <p className="muted">{media.format_note}</p>}
+          {media.kind !== 'text' && (
+            <>
+              <label>
+                Screen fit
+                <FitModeSelect media={media} onChanged={onChanged} />
+              </label>
+              <p className="muted small-text">
+                Fit shows the whole picture and fills the leftover space with a blurred copy, so no text is ever cut
+                off. Fill covers the screen and crops the edges. Use it only for photos where cropping is fine.
+              </p>
+            </>
+          )}
+          <LandscapeWarning media={media} />
+          {media.status !== 'approved' && (
+            <p className={`status status-${media.status}`}>
+              {media.status === 'pending' ? "Waiting for approval: it won't play until approved." : "Rejected: it won't play."}
+            </p>
+          )}
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -113,7 +202,7 @@ export function LoopPreview({ items, width = 220 }: { items: PreviewItem[]; widt
   }
   const m = current.media
   let content: ReactNode
-  if (m.kind === 'text') {
+  if (m.kind === 'text' && !m.url) {
     content = <MediaThumb media={m} width={width} />
   } else {
     content = (

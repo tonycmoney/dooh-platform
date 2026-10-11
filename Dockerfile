@@ -29,6 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     ENVIRONMENT=production \
     DASHBOARD_DIR=/app/dashboard/dist \
     MEDIA_DIR=/data/media \
+    ORIGINALS_DIR=/data/originals \
     BACKUP_DIR=/data/backups
 
 WORKDIR /app/backend

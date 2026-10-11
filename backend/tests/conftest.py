@@ -3,6 +3,7 @@ import tempfile
 
 os.environ["DATABASE_URL"] = "postgresql+psycopg://localhost/dooh_test"
 os.environ["MEDIA_DIR"] = tempfile.mkdtemp(prefix="dooh-media-")
+os.environ["ORIGINALS_DIR"] = tempfile.mkdtemp(prefix="dooh-originals-")
 os.environ["ADMIN_PASSWORD"] = "test-pass"
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["BACKUP_DIR"] = tempfile.mkdtemp(prefix="dooh-backups-")

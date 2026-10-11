@@ -1,6 +1,7 @@
 export type MediaKind = 'image' | 'video' | 'text'
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 export type VideoFit = 'loop' | 'cut'
+export type FitMode = 'fit' | 'fill'
 
 export interface Media {
   id: string
@@ -18,9 +19,14 @@ export interface Media {
   font_size: number | null
   text_color: string | null
   background_color: string | null
+  fit_mode: FitMode
+  /** Size of the original upload (width/height are the formatted 1080×1920). */
+  source_width: number | null
+  source_height: number | null
+  /** How the original was formatted, e.g. "Landscape 1600×900: shown whole over a blurred background". */
+  format_note: string | null
   created_at: string
   used_in_loops: number
-  converted_from?: string | null
 }
 
 export interface TextSlideInput {
@@ -234,6 +240,9 @@ export const api = {
   updateTextSlide: (id: string, body: TextSlideInput) =>
     request<Media>('PUT', `/api/admin/text-slides/${id}`, body),
   renameMedia: (id: string, title: string) => request<Media>('PATCH', `/api/admin/media/${id}`, { title }),
+  /** Switching Fit/Fill makes a new formatted file on the server (videos take a while). */
+  setFitMode: (id: string, fit_mode: FitMode) => request<Media>('PATCH', `/api/admin/media/${id}`, { fit_mode }),
+  previewTextSlide,
   approve: (id: string) => request<Media>('POST', `/api/admin/media/${id}/approve`),
   reject: (id: string) => request<Media>('POST', `/api/admin/media/${id}/reject`),
   deleteMedia: (id: string) => request<void>('DELETE', `/api/admin/media/${id}`),
@@ -265,6 +274,21 @@ export const api = {
   listBackups: () => request<BackupList>('GET', '/api/admin/backups'),
   backupNow: () => request<Backup>('POST', '/api/admin/backups'),
   downloadBackup,
+}
+
+/** The exact 1080×1920 picture a text slide will be, as an object URL
+ * (revoke it when done). */
+async function previewTextSlide(body: TextSlideInput, signal?: AbortSignal): Promise<string> {
+  const token = getToken()
+  const res = await fetch('/api/admin/text-slides/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (res.status === 401) onUnauthorized()
+  if (!res.ok) throw new ApiError(res.status, `Preview failed (${res.status})`)
+  return URL.createObjectURL(await res.blob())
 }
 
 /** Saves a backup file to the computer (the download needs the login token,

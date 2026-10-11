@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from .models import ApprovalStatus, MediaKind, VideoFit
+from .models import ApprovalStatus, FitMode, MediaKind, VideoFit
 
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -78,6 +78,9 @@ class ManifestItem(BaseModel):
     media_duration_seconds: float | None = None
     width: int | None = None
     height: int | None = None
+    # Already 1080x1920 with its own white border: letterbox it in white,
+    # not over a blur, on screens of a different shape.
+    framed: bool = False
     text: TextSlideProps | None = None
 
 
@@ -154,19 +157,23 @@ class MediaOut(ORM):
     font_size: int | None
     text_color: str | None
     background_color: str | None
+    fit_mode: FitMode
+    source_width: int | None = None
+    source_height: int | None = None
+    format_note: str | None = None  # e.g. "Landscape 1600×900: shown whole over a blurred background"
     created_at: datetime
     used_in_loops: int = 0
-    converted_from: str | None = None  # set on upload, e.g. "HEIC → JPG"
 
 
 class MediaUpdate(BaseModel):
     title: ShortText | None = None
+    fit_mode: FitMode | None = None
 
 
 class TextSlideIn(BaseModel):
     title: ShortText
     text: Annotated[str, StringConstraints(min_length=1, max_length=2000)]
-    font_size: Annotated[int, Field(ge=8, le=400)] = 96
+    font_size: Annotated[int, Field(ge=8, le=400)] = 96  # unused: text is auto-sized
     text_color: HexColor = "#FFFFFF"
     background_color: HexColor = "#000000"
 

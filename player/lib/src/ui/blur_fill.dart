@@ -81,3 +81,28 @@ class BlurFill extends StatelessWidget {
     );
   }
 }
+
+/// Shows server-formatted content (exactly 1080x1920 with a white border)
+/// whole and centered. On a screen of another shape, such as a 10:16 tablet,
+/// the leftover space is white, so it reads as a slightly wider border
+/// instead of a blur around a frame.
+class WhiteFrameFill extends StatelessWidget {
+  const WhiteFrameFill({
+    super.key,
+    required this.aspectRatio,
+    required this.child,
+  });
+
+  final double aspectRatio;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.white,
+      child: Center(
+        child: AspectRatio(aspectRatio: aspectRatio, child: child),
+      ),
+    );
+  }
+}

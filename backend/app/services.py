@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from . import schemas
+from . import formatting, schemas
 from .config import settings
 from .models import ApprovalStatus, Device, Loop, LoopItem, Media, MediaKind, Setting
 
@@ -41,6 +41,10 @@ def media_out(media: Media, used_in_loops: int = 0) -> schemas.MediaOut:
         out.url if media.kind is MediaKind.image else None
     )
     out.used_in_loops = used_in_loops
+    if media.kind is MediaKind.text:
+        out.format_note = "Text slide: text sized to fill the slide"
+    elif media.source_width and media.source_height:
+        out.format_note = formatting.describe(media.source_width, media.source_height, media.fit_mode)
     return out
 
 
@@ -113,7 +117,8 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
             duration_seconds=item.duration_seconds,
             video_fit=item.video_fit,
         )
-        if media.kind is MediaKind.text:
+        if media.kind is MediaKind.text and not media.filename:
+            # Not rendered yet (before the reformat ran): the player draws it.
             entry.text = schemas.TextSlideProps(
                 text=media.text or "",
                 font_size=media.font_size or 96,
@@ -121,6 +126,9 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
                 background_color=media.background_color or "#000000",
             )
         else:
+            if media.kind is MediaKind.text:
+                entry.kind = MediaKind.image  # rendered slide: any player shows it as a picture
+            entry.framed = media.format_version is not None
             entry.url = file_url(media.filename)
             entry.sha256 = media.sha256
             entry.size_bytes = media.size_bytes

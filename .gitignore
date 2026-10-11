@@ -25,6 +25,7 @@ pgdata/
 # --- Uploaded media (videos and images live only on this Mac) ---
 media/*
 !media/.gitkeep
+originals/
 
 # --- Python ---
 __pycache__/

@@ -212,6 +212,15 @@ class _PlayerViewState extends State<PlayerView> {
       switch (item.kind) {
         case MediaKind.text:
           child = TextSlideView(slide: item.text!);
+        case MediaKind.image when item.framed:
+          child = WhiteFrameFill(
+            aspectRatio: item.aspectRatio ?? 9 / 16,
+            child: Image.file(
+              ctl.cache.fileFor(item),
+              fit: BoxFit.fill,
+              gaplessPlayback: true,
+            ),
+          );
         case MediaKind.image:
           final image = Image.file(
             ctl.cache.fileFor(item),
@@ -241,7 +250,9 @@ class _PlayerViewState extends State<PlayerView> {
           final ratio = v.value.aspectRatio > 0
               ? v.value.aspectRatio
               : (item.aspectRatio ?? 9 / 16);
-          child = BlurFill(aspectRatio: ratio, child: VideoPlayer(v));
+          child = item.framed
+              ? WhiteFrameFill(aspectRatio: ratio, child: VideoPlayer(v))
+              : BlurFill(aspectRatio: ratio, child: VideoPlayer(v));
       }
     }
     return ColoredBox(

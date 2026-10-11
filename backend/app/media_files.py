@@ -1,16 +1,14 @@
-"""Receiving uploads and normalizing them into files every screen can play.
+"""Receiving uploads, keeping the original, and producing the formatted file
+screens play (see formatting.py for the 1080 x 1920 framed format).
 
-Images: JPG, PNG, HEIC/HEIF in; JPG or PNG out. HEIC is converted to JPG,
-the camera's rotation is applied to the pixels, and location metadata is
-stripped from anything that gets re-encoded.
+In: JPG, PNG, HEIC/HEIF images and MP4, MOV videos (HEVC, HDR, 4K all fine).
+The upload is kept untouched in ORIGINALS_DIR, which is never served, so the
+item can be reformatted later. The formatted JPEG or H.264 MP4 goes to
+MEDIA_DIR, which tablets download from at /files. It carries no camera
+metadata (no GPS).
 
-Videos: MP4 and MOV in; H.264 MP4 out, at most 1080 px on the short side and
-1920 on the long side (portrait or landscape), SDR, with dimensions that budget
-tablet decoders accept. Files already in that form are stored untouched.
-HDR/HEVC sources go through macOS avconvert (proper tone mapping) when
-available; anything still not screen-ready is re-encoded by ffmpeg at an exact,
-decoder-friendly size, tone-mapping HDR with zscale where ffmpeg has it (the
-Linux server image does).
+HDR video is tone-mapped by ffmpeg's zscale where available (the Linux server
+image); on a Mac without it, macOS avconvert makes an SDR copy first.
 """
 
 import functools
@@ -24,11 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
+from . import formatting
 from .config import settings
-from .models import MediaKind
+from .models import FitMode, Media, MediaKind
 
 register_heif_opener()
 log = logging.getLogger("dooh.media")
@@ -36,34 +35,46 @@ log = logging.getLogger("dooh.media")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 SUPPORTED_LABEL = "JPG, PNG, HEIC, MP4 or MOV"
-
-MAX_IMAGE_SIDE = 3840  # larger photos are scaled down (tablets don't need 48 MP)
-MAX_VIDEO_LONG, MAX_VIDEO_SHORT = 1920, 1080
-SAFE_AUDIO_RATES = {44100, 48000}
 PROBE_TIMEOUT = 60
-CONVERT_TIMEOUT = 60 * 60  # long 4K videos can take a while
+AVCONVERT_TIMEOUT = 60 * 60
 
 
 @dataclass
-class StoredFile:
-    kind: MediaKind
+class FormattedFile:
+    """The file screens play, plus its thumbnail."""
+
     filename: str
     mime_type: str
     size_bytes: int
     sha256: str
-    width: int | None
-    height: int | None
+    width: int
+    height: int
     duration_seconds: float | None
     thumbnail_filename: str | None
-    converted_from: str | None = None
+
+
+@dataclass
+class StoredUpload:
+    kind: MediaKind
+    formatted: FormattedFile
+    source_filename: str
+    source_sha256: str
+    source_size_bytes: int
+    source_width: int
+    source_height: int
 
 
 def media_dir() -> Path:
     return settings.resolved_media_dir()
 
 
+def originals_dir() -> Path:
+    return settings.resolved_originals_dir()
+
+
 def incoming_dir() -> Path:
-    path = media_dir() / ".incoming"
+    # Next to the originals (private, same disk) so keeping one is a rename.
+    path = originals_dir() / ".incoming"
     path.mkdir(exist_ok=True)
     return path
 
@@ -95,45 +106,7 @@ def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
-# --- Images -------------------------------------------------------------------
-
-
-def _process_image(source: Path, original_name: str) -> tuple[Path, str, int, int, str | None]:
-    suffix = Path(original_name).suffix.lower()
-    try:
-        with Image.open(source) as img:
-            img.load()  # fully decode: rejects truncated or fake files
-            exif = img.getexif()
-            orientation = exif.get(0x0112, 1)
-            has_gps = 0x8825 in exif
-            too_big = max(img.size) > MAX_IMAGE_SIDE
-            is_heif = img.format in ("HEIF", "HEIC") or suffix in (".heic", ".heif")
-
-            if not (is_heif or orientation != 1 or has_gps or too_big):
-                ext = ".png" if img.format == "PNG" else ".jpg"
-                mime = "image/png" if ext == ".png" else "image/jpeg"
-                return source, mime, img.width, img.height, None
-
-            out = ImageOps.exif_transpose(img)  # bake rotation into pixels
-            if too_big:
-                out.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
-            keep_png = img.format == "PNG"
-            target = source.with_suffix(".png" if keep_png else ".jpg")
-            if keep_png:
-                out.save(target, "PNG", optimize=True)
-            else:
-                if out.mode not in ("RGB", "L"):
-                    out = out.convert("RGB")
-                # No exif passed: drops GPS and other camera metadata.
-                out.save(target, "JPEG", quality=90, optimize=True, progressive=True)
-            converted = f"{img.format or suffix.lstrip('.').upper()} → {'PNG' if keep_png else 'JPG'}"
-            return target, "image/png" if keep_png else "image/jpeg", out.width, out.height, converted
-    except (UnidentifiedImageError, OSError, SyntaxError) as e:
-        log.info("Unreadable image %s: %s", original_name, e)
-        raise bad_request(f"“{original_name}” couldn't be read as an image. Is the file complete?")
-
-
-# --- Videos -------------------------------------------------------------------
+# --- Probing ------------------------------------------------------------------
 
 
 def _probe(path: Path) -> dict:
@@ -158,78 +131,19 @@ def _display_size(stream: dict) -> tuple[int, int]:
     return (h, w) if abs(rotation) % 180 == 90 else (w, h)
 
 
-def _decoder_friendly(n: int) -> bool:
-    # Allwinner-class hardware decoders hang on frame sizes that aren't a
-    # multiple of 16 (1080 is the common, well-supported exception).
-    return n % 16 == 0 or n == 1080
+def _fps(stream: dict) -> float:
+    for key in ("avg_frame_rate", "r_frame_rate"):
+        num, _, den = (stream.get(key) or "0/0").partition("/")
+        try:
+            if float(den or 1):
+                return float(num) / float(den or 1)
+        except ValueError:
+            pass
+    return 30.0
 
 
 def _is_hdr(stream: dict) -> bool:
     return stream.get("color_transfer") in ("smpte2084", "arib-std-b67")
-
-
-def _video_track_ready(stream: dict) -> bool:
-    w, h = stream.get("width") or 0, stream.get("height") or 0
-    return (
-        stream.get("codec_name") == "h264"
-        and stream.get("pix_fmt") in ("yuv420p", "yuvj420p")
-        and not _is_hdr(stream)
-        and max(w, h) <= MAX_VIDEO_LONG
-        and min(w, h) <= MAX_VIDEO_SHORT
-        and _decoder_friendly(w)
-        and _decoder_friendly(h)
-    )
-
-
-def _is_screen_ready(path: Path, info: dict) -> bool:
-    """H.264 8-bit 4:2:0 SDR in MP4, within 1080x1920 either way round, with
-    decoder-friendly dimensions and a standard audio sample rate."""
-    stream = _video_stream(info)
-    if stream is None:
-        return False
-    w, h = stream.get("width") or 0, stream.get("height") or 0
-    audio = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
-    return (
-        path.suffix.lower() == ".mp4"
-        and "mp4" in info.get("format", {}).get("format_name", "")
-        and _video_track_ready(stream)
-        and all(int(a.get("sample_rate") or 0) in SAFE_AUDIO_RATES and a.get("codec_name") == "aac" for a in audio)
-    )
-
-
-def _target_size(w: int, h: int) -> tuple[int, int]:
-    """Fit within 1920 (long) x 1080 (short), never upscale, multiples of 16
-    (or exactly 1080, which decoders also handle)."""
-    scale = min(1.0, MAX_VIDEO_LONG / max(w, h), MAX_VIDEO_SHORT / min(w, h))
-
-    def snap(n: int) -> int:
-        return n if n == 1080 else max(n // 16 * 16, 16)
-
-    return snap(round(w * scale)), snap(round(h * scale))
-
-
-def _avconvert(source: Path, original_name: str) -> Path | None:
-    """Apple's exporter: H.264 within 1920x1080 (keeps portrait), HDR
-    tone-mapped to SDR, rotation applied, location metadata removed."""
-    if not shutil.which("avconvert"):
-        return None
-    target = source.with_name(f"{source.stem}.av.mp4")
-    try:
-        result = _run(["avconvert", "--preset", "Preset1920x1080", "--source", str(source),
-                       "--output", str(target), "--replace"], CONVERT_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        result = None
-    if result is not None and result.returncode == 0 and target.exists():
-        return target
-    log.warning("avconvert failed for %s: %s", original_name, (result.stderr if result else "timeout")[-500:])
-    target.unlink(missing_ok=True)
-    return None
-
-
-TONEMAP_TO_SDR = (
-    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-    "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv"
-)
 
 
 @functools.cache
@@ -241,67 +155,39 @@ def _ffmpeg_can_tonemap() -> bool:
     return all(f" {name} " in filters for name in ("zscale", "tonemap"))
 
 
-def _ffmpeg_encode(source: Path, info: dict, original_name: str) -> Path:
-    stream = _video_stream(info) or {}
-    target = source.with_name(f"{source.stem}.ff.mp4")
-    if _video_track_ready(stream) and _display_size(stream) == (stream.get("width"), stream.get("height")):
-        # Picture is already fine (e.g. only the audio rate or container is
-        # off): copy the video untouched so it keeps its original quality.
-        video_args = ["-c:v", "copy"]
-    else:
-        tw, th = _target_size(*_display_size(stream))
-        filters = f"scale={tw}:{th}:flags=lanczos,setsar=1"
-        if _is_hdr(stream) and _ffmpeg_can_tonemap():
-            # HDR (iPhone HLG / PQ) to SDR, for servers without avconvert.
-            filters += ("," + TONEMAP_TO_SDR)
-        video_args = ["-vf", f"{filters},format=yuv420p",
-                      "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-                      "-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "medium", "-crf", "20"]
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
-           *video_args, "-c:a", "aac", "-ar", "48000", "-b:a", "160k", "-movflags", "+faststart",
-           "-map_metadata", "-1", str(target)]
-    try:
-        result = _run(cmd, CONVERT_TIMEOUT)
-        ok = result.returncode == 0 and target.exists()
-    except subprocess.TimeoutExpired:
-        result, ok = None, False
-    if not ok:
-        log.warning("ffmpeg failed for %s: %s", original_name, (result.stderr if result else "timeout")[-500:])
-        target.unlink(missing_ok=True)
-        raise bad_request(f"“{original_name}” couldn't be converted to a playable MP4. Is the video complete?")
-    return target
-
-
-def _convert_video(source: Path, info: dict, original_name: str) -> Path:
-    stream = _video_stream(info) or {}
-    current, current_info = source, info
-    if _is_hdr(stream) or stream.get("codec_name") != "h264":
-        converted = _avconvert(source, original_name)
-        if converted is not None:
-            current, current_info = converted, _probe(converted)
-    if not _is_screen_ready(current, current_info):
-        current = _ffmpeg_encode(current, current_info, original_name)
-    return current
-
-
-def _process_video(source: Path, original_name: str) -> tuple[Path, float | None, int, int, str | None]:
-    info = _probe(source)
-    if _video_stream(info) is None:
+def _source_size(path: Path, kind: MediaKind, original_name: str) -> tuple[int, int]:
+    """Upright size of the original; raises a readable 400 if it can't be read."""
+    if kind is MediaKind.image:
+        try:
+            return formatting.open_upright(path).size
+        except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as e:
+            log.info("Unreadable image %s: %s", original_name, e)
+            raise bad_request(f"“{original_name}” couldn't be read as an image. Is the file complete?")
+    stream = _video_stream(_probe(path))
+    if stream is None or not all(_display_size(stream)):
         raise bad_request(f"“{original_name}” has no readable video. Is the file complete?")
-    converted = None
-    if not _is_screen_ready(source, info):
-        stream = _video_stream(info) or {}
-        before = f"{Path(original_name).suffix.lstrip('.').upper()} ({stream.get('codec_name', '?')})"
-        source = _convert_video(source, info, original_name)
-        info = _probe(source)
-        converted = f"{before} → MP4 (H.264)"
-    stream = _video_stream(info) or {}
-    w, h = _display_size(stream)
+    return _display_size(stream)
+
+
+# --- Formatting ---------------------------------------------------------------
+
+
+def _avconvert_sdr(source: Path) -> Path | None:
+    """macOS only: an SDR H.264 copy of an HDR video, for Macs whose ffmpeg
+    can't tone-map. None if avconvert is missing or fails."""
+    if not shutil.which("avconvert"):
+        return None
+    target = incoming_dir() / f"{uuid.uuid4().hex}.sdr.mp4"
     try:
-        duration = float(info.get("format", {}).get("duration"))
-    except (TypeError, ValueError):
-        duration = None
-    return source, duration, w, h, converted
+        result = _run(["avconvert", "--preset", "Preset1920x1080", "--source", str(source),
+                       "--output", str(target), "--replace"], AVCONVERT_TIMEOUT)
+        if result.returncode == 0 and target.exists():
+            return target
+        log.warning("avconvert failed: %s", result.stderr[-500:])
+    except subprocess.TimeoutExpired:
+        log.warning("avconvert timed out on %s", source.name)
+    target.unlink(missing_ok=True)
+    return None
 
 
 def _make_thumbnail(source: Path, kind: MediaKind) -> str | None:
@@ -318,66 +204,154 @@ def _make_thumbnail(source: Path, kind: MediaKind) -> str | None:
     return thumb_name if _run(base + ["-i", str(source)] + tail, PROBE_TIMEOUT).returncode == 0 else None
 
 
-# --- Entry point (runs in a worker thread) ------------------------------------
+def _finish(path: Path, kind: MediaKind, duration: float | None) -> FormattedFile:
+    return FormattedFile(
+        filename=path.name,
+        mime_type="video/mp4" if kind is MediaKind.video else "image/jpeg",
+        size_bytes=path.stat().st_size,
+        sha256=_sha256(path),
+        width=formatting.CANVAS_W,
+        height=formatting.CANVAS_H,
+        duration_seconds=duration,
+        thumbnail_filename=_make_thumbnail(path, kind),
+    )
 
 
-def process_upload(incoming: Path, original_name: str) -> StoredFile:
-    """Turns a received file into a stored, screen-ready media file. Always
-    removes the incoming file; raises HTTPException(400) on bad input."""
+def format_file(source: Path, kind: MediaKind, mode: FitMode, title: str) -> FormattedFile:
+    """Writes a new formatted file (and thumbnail) for `source` into MEDIA_DIR.
+    Raises a readable 400 if the content can't be converted."""
+    stem = uuid.uuid4().hex
+    if kind is MediaKind.image:
+        target = media_dir() / f"{stem}.jpg"
+        try:
+            formatting.format_image(source, target, mode)
+        except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as e:
+            target.unlink(missing_ok=True)
+            log.info("Unreadable image %s: %s", title, e)
+            raise bad_request(f"“{title}” couldn't be read as an image. Is the file complete?")
+        return _finish(target, kind, None)
+
+    target = media_dir() / f"{stem}.mp4"
+    stream = _video_stream(_probe(source)) or {}
+    work, sdr_copy = source, None
+    hdr = _is_hdr(stream)
+    if hdr and not _ffmpeg_can_tonemap():
+        sdr_copy = _avconvert_sdr(source)
+        if sdr_copy is not None:
+            work, hdr = sdr_copy, False
+            stream = _video_stream(_probe(sdr_copy)) or stream
+        else:
+            hdr = False  # colors will look flat, but it plays
+    try:
+        width, height = _display_size(stream)
+        result = formatting.format_video(work, target, width, height, mode, hdr=hdr, fps=_fps(stream))
+    finally:
+        if sdr_copy is not None:
+            sdr_copy.unlink(missing_ok=True)
+    if result is None or result.returncode != 0 or not target.exists():
+        log.warning("ffmpeg failed for %s: %s", title, (result.stderr if result else "timeout")[-500:])
+        target.unlink(missing_ok=True)
+        raise bad_request(f"“{title}” couldn't be converted to a playable video. Is the video complete?")
+    try:
+        duration = float(_probe(target).get("format", {}).get("duration"))
+    except (TypeError, ValueError):
+        duration = None
+    return _finish(target, kind, duration)
+
+
+def render_text_file(text: str, text_color: str | None, background_color: str | None) -> FormattedFile:
+    target = media_dir() / f"{uuid.uuid4().hex}.jpg"
+    formatting.render_text(text, text_color, background_color, target)
+    return _finish(target, MediaKind.image, None)
+
+
+# --- Entry points (run in a worker thread) ------------------------------------
+
+
+def process_upload(incoming: Path, original_name: str, mode: FitMode = FitMode.fit) -> StoredUpload:
+    """Keeps the upload as the original and makes its formatted file. Always
+    consumes `incoming`; raises HTTPException(400) on bad input."""
     kind = kind_for(original_name)
-    produced: list[Path] = []
+    kept: Path | None = None
     try:
         if incoming.stat().st_size == 0:
             raise bad_request(
                 f"“{original_name}” is empty. If it's stored in iCloud, open it in Photos "
                 "to download it first, or use File → Export in Photos."
             )
-        if kind is MediaKind.image:
-            result, mime, width, height, converted = _process_image(incoming, original_name)
-            duration = None
-        else:
-            result, duration, width, height, converted = _process_video(incoming, original_name)
-            mime = "video/mp4"
-        produced.append(result)
-
-        final_name = f"{uuid.uuid4().hex}{result.suffix.lower()}"
-        final = media_dir() / final_name
-        shutil.move(result, final)
-        produced.append(final)
-        return StoredFile(
+        width, height = _source_size(incoming, kind, original_name)
+        kept = originals_dir() / f"{uuid.uuid4().hex}{Path(original_name).suffix.lower()}"
+        shutil.move(incoming, kept)
+        formatted = format_file(kept, kind, mode, original_name)
+        return StoredUpload(
             kind=kind,
-            filename=final_name,
-            mime_type=mime,
-            size_bytes=final.stat().st_size,
-            sha256=_sha256(final),
-            width=width or None,
-            height=height or None,
-            duration_seconds=duration,
-            thumbnail_filename=_make_thumbnail(final, kind),
-            converted_from=converted,
+            formatted=formatted,
+            source_filename=kept.name,
+            source_sha256=_sha256(kept),
+            source_size_bytes=kept.stat().st_size,
+            source_width=width,
+            source_height=height,
         )
     except BaseException:
-        for path in produced:
-            path.unlink(missing_ok=True)
+        if kept is not None:
+            kept.unlink(missing_ok=True)
         raise
     finally:
-        for path in incoming.parent.glob(f"{incoming.stem}*"):
-            path.unlink(missing_ok=True)
+        incoming.unlink(missing_ok=True)
 
 
-def restore_file(source: Path, filename: str, sha256: str, kind: MediaKind) -> None:
-    """Moves `source` into place as stored file `filename` if its hash matches,
-    and remakes the thumbnail. Raises HTTPException(400) on a mismatch."""
+def apply_formatted(media: Media, formatted: FormattedFile, format_version: int) -> list[str | None]:
+    """Points `media` at a new formatted file. Returns the replaced file names,
+    to delete once the change is committed."""
+    old = [media.filename, media.thumbnail_filename]
+    media.filename = formatted.filename
+    media.mime_type = formatted.mime_type
+    media.size_bytes = formatted.size_bytes
+    media.sha256 = formatted.sha256
+    media.width = formatted.width
+    media.height = formatted.height
+    media.duration_seconds = formatted.duration_seconds
+    media.thumbnail_filename = formatted.thumbnail_filename
+    media.format_version = format_version
+    return [name for name in old if name not in (formatted.filename, formatted.thumbnail_filename)]
+
+
+def reformat(media: Media) -> list[str | None]:
+    """Remakes the formatted file from the kept original (or the text). Returns
+    the old file names to delete after commit. Raises HTTPException(400)."""
+    if media.kind is MediaKind.text:
+        formatted = render_text_file(media.text or "", media.text_color, media.background_color)
+    else:
+        source = originals_dir() / (media.source_filename or "")
+        if not media.source_filename or not source.is_file():
+            raise bad_request(f"The original of “{media.title}” is missing, so it can't be reformatted.")
+        formatted = format_file(source, media.kind, media.fit_mode, media.title)
+    return apply_formatted(media, formatted, formatting.FORMAT_VERSION)
+
+
+def restore_file(source: Path, media: Media, *, original: bool) -> None:
+    """Puts back the formatted file (or the original) of `media` if `source`
+    is byte-for-byte the recorded file. Raises HTTPException(400) otherwise."""
+    filename, sha256 = (media.source_filename, media.source_sha256) if original else (media.filename, media.sha256)
+    if not filename or not sha256:
+        raise bad_request("This item has no such file.")
     if Path(filename).name != filename or filename.startswith("."):
         raise bad_request("Invalid stored file name.")
     if _sha256(source) != sha256:
-        raise bad_request("This isn't the same file: its SHA-256 doesn't match the one recorded at upload.")
-    target = media_dir() / filename
-    shutil.move(source, target)
-    _make_thumbnail(target, kind)
+        raise bad_request("This isn't the same file: its SHA-256 doesn't match the one recorded.")
+    folder = originals_dir() if original else media_dir()
+    shutil.move(source, folder / filename)
+    if not original:
+        _make_thumbnail(folder / filename, media.kind if media.kind is MediaKind.video else MediaKind.image)
 
 
 def delete_files(*filenames: str | None) -> None:
     for name in filenames:
         if name:
             (media_dir() / name).unlink(missing_ok=True)
+
+
+def delete_originals(*filenames: str | None) -> None:
+    for name in filenames:
+        if name:
+            (originals_dir() / name).unlink(missing_ok=True)

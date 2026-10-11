@@ -65,7 +65,7 @@ To get back into tablet settings after that, tap the **top-left corner 5 times**
 The `Dockerfile` builds one image: the backend serves the API, the uploaded media at `/files/…` and the built dashboard at `/`. `railway.json` tells Railway to use it, with `/api/health` as the health check.
 
 1. Create a Railway project with a **PostgreSQL** database and a service built from this repo.
-2. On the service, add a **volume** mounted at `/data`. Media goes in `/data/media` and database backups in `/data/backups`.
+2. On the service, add a **volume** mounted at `/data`. Formatted media goes in `/data/media`, originals in `/data/originals` and database backups in `/data/backups`.
 3. Set the service variables:
    - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
    - `SECRET_KEY`: a random string of 32+ characters
@@ -75,6 +75,8 @@ The `Dockerfile` builds one image: the backend serves the API, the uploaded medi
 5. Build the player for that address: `scripts/build_player.sh https://<your-domain>`.
 
 The image sets `ENVIRONMENT=production`, so the server refuses to start with a missing or weak password or key. Database migrations run on every start.
+
+**Reformatting:** `uv run python -m app.reformat` brings every item to the current format. Items stored before originals were kept adopt their stored file as the original. Run it on the server after a format change (`--all` redoes everything; `--dry-run` only lists the items).
 
 **Backups:** the server runs `pg_dump` once a day and keeps 14 days of dumps. They're listed on the dashboard's Backups page, where you can download them. Restore one with `pg_restore --clean --if-exists --no-owner -d <database-url> <file>.dump`. Turn on Railway's scheduled volume backups as well (on both the database and the `/data` volume), since they also cover the media files. If media files are ever lost, `PUT /api/admin/media/{id}/file` with the original file puts each one back. The server checks the file's SHA-256 against the one recorded at upload.
 
@@ -90,7 +92,8 @@ The image sets `ENVIRONMENT=production`, so the server refuses to start with a m
 | Proof of play | Each play gets a UUID on the tablet and is queued on disk. `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
 | Kiosk mode | Fullscreen portrait, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
 | Crash restart | `PlayerApplication.kt` catches crashes and relaunches the app through a separate restarter process, with an alarm as backup |
-| Uploads from Photos | Accepts JPG, PNG, HEIC, MP4 and MOV. HEIC becomes JPG, with the camera's rotation applied and GPS metadata removed. MOV, HEVC, HDR and 4K video becomes 1080p H.264 MP4, using macOS `avconvert` or ffmpeg. The dashboard sends the raw file bytes with an `X-Filename` header; multipart uploads with any field name also work. |
+| Uploads from Photos | Accepts JPG, PNG, HEIC, MP4 and MOV, including HEVC, HDR and 4K. The upload is kept untouched as the original, in `ORIGINALS_DIR`, which is never served. The dashboard sends the raw file bytes with an `X-Filename` header; multipart uploads with any field name also work. |
+| Screen format | Every image, video and text slide becomes a formatted file at exactly 1080 × 1920 with a 12 px white border, and that's all tablets download. **Fit** (the default): content that's already 9:16 (within 2%) fills the frame. Other shapes are shown whole, never stretched or cut, over a blurred, darkened copy of themselves. **Fill**: covers the frame and crops the edges. Switching an item between Fit and Fill reformats it from the original. Text slides are rendered on the server in Inter (SIL OFL, `backend/app/fonts/`), sized to fill the slide. Videos come out as H.264 MP4 at no more than 30 fps, with 48 kHz AAC audio and HDR tone-mapped to SDR. Tablets of another shape (the KB10 is 10:16) show the 9:16 frame whole, padded in white. |
 | Approval queue | Only approved media is sent to screens. "Auto-approve my uploads" (on the Media page) controls whether new uploads skip the queue. |
 
 Item timing: each loop item plays for its set seconds (default 10). A video either **loops** to fill that time, or plays **once and is cut** at that time (or ends when the video does, if that comes first).

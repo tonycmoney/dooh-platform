@@ -34,6 +34,11 @@ class ApprovalStatus(str, enum.Enum):
     rejected = "rejected"
 
 
+class FitMode(str, enum.Enum):
+    fit = "fit"  # show everything; other shapes go over a blurred background
+    fill = "fill"  # cover the screen, cropping the edges
+
+
 class VideoFit(str, enum.Enum):
     loop = "loop"  # repeat the video until the item's time is up
     cut = "cut"  # play once; stop early if the item's time is shorter
@@ -89,7 +94,8 @@ class Media(Base):
         Enum(ApprovalStatus, name="approval_status"), default=ApprovalStatus.pending
     )
 
-    # Files (images and videos)
+    # The formatted file screens play: 1080x1920 with a white border (images,
+    # videos and rendered text slides). width/height describe this file.
     filename: Mapped[str | None] = mapped_column(String(300))
     original_name: Mapped[str | None] = mapped_column(String(300))
     mime_type: Mapped[str | None] = mapped_column(String(100))
@@ -99,6 +105,17 @@ class Media(Base):
     height: Mapped[int | None] = mapped_column(Integer)
     duration_seconds: Mapped[float | None] = mapped_column(Float)
     thumbnail_filename: Mapped[str | None] = mapped_column(String(300))
+
+    # The original upload, kept privately so the item can be reformatted.
+    source_filename: Mapped[str | None] = mapped_column(String(300))
+    source_sha256: Mapped[str | None] = mapped_column(String(64))
+    source_size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    source_width: Mapped[int | None] = mapped_column(Integer)
+    source_height: Mapped[int | None] = mapped_column(Integer)
+    fit_mode: Mapped[FitMode] = mapped_column(
+        Enum(FitMode, name="fit_mode"), default=FitMode.fit, server_default=FitMode.fit.value
+    )
+    format_version: Mapped[int | None] = mapped_column(Integer)
 
     # Text slides
     text: Mapped[str | None] = mapped_column(Text)

@@ -1,12 +1,13 @@
 """Endpoints the control dashboard calls."""
 
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
@@ -15,16 +16,20 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from .. import backups, schemas, services
 from ..config import settings
 from ..db import get_db
+from ..formatting import FORMAT_VERSION, render_text
 from ..media_files import (
     SUPPORTED_LABEL,
+    apply_formatted,
     bad_request,
     delete_files,
+    delete_originals,
     incoming_dir,
     kind_for,
     process_upload,
+    reformat,
     restore_file,
 )
-from ..models import ApprovalStatus, Device, Loop, LoopItem, Media, MediaKind, PlayLog
+from ..models import ApprovalStatus, Device, FitMode, Loop, LoopItem, Media, MediaKind, PlayLog
 from ..security import (
     check_admin_password,
     create_admin_token,
@@ -155,8 +160,8 @@ async def _receive_upload(request: Request) -> tuple[Path, str, str | None]:
 
 @router.post("/media", response_model=schemas.MediaOut, status_code=201)
 async def upload_media(request: Request, db: Session = Depends(get_db)):
-    """Upload an image (JPG, PNG, HEIC) or video (MP4, MOV). HEIC becomes JPG
-    and MOV/HDR/4K video becomes H.264 MP4 before it is stored."""
+    """Upload an image (JPG, PNG, HEIC) or video (MP4, MOV). The original is
+    kept; screens get a 1080x1920 formatted copy with a white border."""
     incoming, filename, title = await _receive_upload(request)
     try:
         stored = await run_in_threadpool(process_upload, incoming, filename)
@@ -167,31 +172,33 @@ async def upload_media(request: Request, db: Session = Depends(get_db)):
         kind=stored.kind,
         title=(title or default_title).strip()[:300] or "Untitled",
         status=_initial_status(db),
-        filename=stored.filename,
         original_name=filename,
-        mime_type=stored.mime_type,
-        size_bytes=stored.size_bytes,
-        sha256=stored.sha256,
-        width=stored.width,
-        height=stored.height,
-        duration_seconds=stored.duration_seconds,
-        thumbnail_filename=stored.thumbnail_filename,
+        source_filename=stored.source_filename,
+        source_sha256=stored.source_sha256,
+        source_size_bytes=stored.source_size_bytes,
+        source_width=stored.source_width,
+        source_height=stored.source_height,
+        fit_mode=FitMode.fit,
     )
+    apply_formatted(media, stored.formatted, FORMAT_VERSION)
     db.add(media)
-    db.commit()
-    out = services.media_out(media)
-    out.converted_from = stored.converted_from
-    return out
+    try:
+        db.commit()
+    except BaseException:
+        delete_files(stored.formatted.filename, stored.formatted.thumbnail_filename)
+        delete_originals(stored.source_filename)
+        raise
+    return services.media_out(media)
 
 
 @router.put("/media/{media_id}/file", response_model=schemas.MediaOut)
-async def restore_media_file(media_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
-    """Puts back the stored file of an existing media item (after moving
-    servers or losing the media volume). The body must be the exact file:
-    its SHA-256 has to match the one recorded at upload."""
+async def restore_media_file(
+    media_id: uuid.UUID, request: Request, original: bool = False, db: Session = Depends(get_db)
+):
+    """Puts back the formatted file (or with ?original=true, the original) of
+    an existing item, after moving servers or losing the volume. The body
+    must be the exact file: its SHA-256 has to match the recorded one."""
     media = _get_media(db, media_id)
-    if not media.filename or not media.sha256:
-        raise bad_request("This item has no file (text slide).")
     incoming = incoming_dir() / f"{uuid.uuid4().hex}.restore"
     try:
         size = 0
@@ -201,17 +208,29 @@ async def restore_media_file(media_id: uuid.UUID, request: Request, db: Session 
                 if size > MAX_UPLOAD_BYTES:
                     raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "File too large.")
                 out.write(chunk)
-        await run_in_threadpool(restore_file, incoming, media.filename, media.sha256, media.kind)
+        await run_in_threadpool(restore_file, incoming, media, original=original)
     finally:
         incoming.unlink(missing_ok=True)
     return services.media_out(media)
+
+
+def _reformat_and_commit(db: Session, media: Media) -> None:
+    """Makes the new formatted file, commits, then removes the old one, so a
+    screen is never pointed at a file that doesn't exist yet or anymore."""
+    old_files = reformat(media)
+    try:
+        db.commit()
+    except BaseException:
+        delete_files(media.filename, media.thumbnail_filename)
+        raise
+    delete_files(*old_files)
 
 
 @router.post("/text-slides", response_model=schemas.MediaOut, status_code=201)
 def create_text_slide(body: schemas.TextSlideIn, db: Session = Depends(get_db)):
     media = Media(kind=MediaKind.text, status=_initial_status(db), **body.model_dump())
     db.add(media)
-    db.commit()
+    _reformat_and_commit(db, media)
     return services.media_out(media)
 
 
@@ -222,16 +241,33 @@ def update_text_slide(media_id: uuid.UUID, body: schemas.TextSlideIn, db: Sessio
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a text slide")
     for key, value in body.model_dump().items():
         setattr(media, key, value)
-    db.commit()
+    _reformat_and_commit(db, media)
     return services.media_out(media)
 
 
+@router.post("/text-slides/preview", response_class=Response,
+             responses={200: {"content": {"image/jpeg": {}}}})
+def preview_text_slide(body: schemas.TextSlideIn):
+    """The exact 1080x1920 image a text slide will be, without saving it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "preview.jpg"
+        render_text(body.text, body.text_color, body.background_color, target)
+        return Response(target.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @router.patch("/media/{media_id}", response_model=schemas.MediaOut)
-def rename_media(media_id: uuid.UUID, body: schemas.MediaUpdate, db: Session = Depends(get_db)):
+def update_media(media_id: uuid.UUID, body: schemas.MediaUpdate, db: Session = Depends(get_db)):
+    """Rename, or switch between Fit and Fill (which reformats the item)."""
     media = _get_media(db, media_id)
     if body.title:
         media.title = body.title
-    db.commit()
+    if body.fit_mode is not None and body.fit_mode is not media.fit_mode:
+        if media.kind is MediaKind.text:
+            raise bad_request("Text slides are always sized to fit.")
+        media.fit_mode = body.fit_mode
+        _reformat_and_commit(db, media)
+    else:
+        db.commit()
     return services.media_out(media)
 
 
@@ -254,10 +290,11 @@ def reject_media(media_id: uuid.UUID, db: Session = Depends(get_db)):
 @router.delete("/media/{media_id}", status_code=204)
 def delete_media(media_id: uuid.UUID, db: Session = Depends(get_db)):
     media = _get_media(db, media_id)
-    files = (media.filename, media.thumbnail_filename)
+    files, original = (media.filename, media.thumbnail_filename), media.source_filename
     db.delete(media)  # loop items cascade
     db.commit()
     delete_files(*files)
+    delete_originals(original)
 
 
 # --- Loops --------------------------------------------------------------------

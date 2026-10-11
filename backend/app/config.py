@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     database_url: str = "postgresql+psycopg://localhost/dooh"
-    media_dir: Path = REPO_DIR / "media"
+    media_dir: Path = REPO_DIR / "media"  # formatted files, public at /files
+    originals_dir: Path = REPO_DIR / "originals"  # original uploads, never served
     admin_password: str = DEV_PASSWORD
     secret_key: str = DEV_SECRET
     admin_token_days: int = 30
@@ -65,6 +66,9 @@ class Settings(BaseSettings):
 
     def resolved_media_dir(self) -> Path:
         return _ensure_dir(self.media_dir)
+
+    def resolved_originals_dir(self) -> Path:
+        return _ensure_dir(self.originals_dir)
 
     def resolved_backup_dir(self) -> Path:
         return _ensure_dir(self.backup_dir)

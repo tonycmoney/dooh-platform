@@ -1,3 +1,4 @@
+import hashlib
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -73,16 +74,20 @@ def test_media_loop_manifest_and_assignment(client, admin):
 
     admin.put(f"/api/admin/loops/{loop['id']}/screens", json={"device_ids": [device_id]})
     m1 = client.get("/api/player/manifest", headers=auth(token)).json()
-    assert [i["kind"] for i in m1["items"]] == ["image", "text"]
+    # Text slides are rendered to framed pictures, so screens get two images.
+    assert [i["kind"] for i in m1["items"]] == ["image", "image"]
+    assert all(i["framed"] and (i["width"], i["height"]) == (1080, 1920) for i in m1["items"])
     assert m1["items"][0]["url"].startswith("/files/") and m1["items"][0]["sha256"]
-    assert m1["items"][1]["text"]["text"] == "50% off"
-    assert client.get(m1["items"][0]["url"]).content == PNG
+    assert m1["items"][1]["url"] == slide["url"] and m1["items"][1]["text"] is None
+    formatted = client.get(m1["items"][0]["url"])
+    assert formatted.headers["content-type"] == "image/jpeg"
+    assert hashlib.sha256(formatted.content).hexdigest() == m1["items"][0]["sha256"]
 
     # Reorder -> version changes
     admin.put(f"/api/admin/loops/{loop['id']}", json={"name": "Main", "items": [
         {"media_id": slide["id"], "duration_seconds": 5}, {"media_id": img["id"]}]})
     m2 = client.get("/api/player/manifest", headers=auth(token)).json()
-    assert m2["version"] != m1["version"] and m2["items"][0]["kind"] == "text"
+    assert m2["version"] != m1["version"] and m2["items"][0]["media_id"] == slide["id"]
 
     hb = client.post("/api/player/heartbeat", headers=auth(token), json={"manifest_version": m2["version"]}).json()
     assert hb["manifest_version"] == m2["version"]

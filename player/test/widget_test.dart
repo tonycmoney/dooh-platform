@@ -45,6 +45,12 @@ void main() {
     expect(manifest.items.last.hasFile, isFalse);
     final again = Manifest.fromJson(manifest.toJson());
     expect(again.items.last.text!.fontSize, 120);
+    expect(again.items.first.framed, isFalse); // older servers don't send it
+    final framed = ManifestItem.fromJson({
+      ...manifest.items.first.toJson(),
+      'framed': true,
+    });
+    expect(ManifestItem.fromJson(framed.toJson()).framed, isTrue);
   });
 
   test('parses dashboard hex colors', () {
@@ -98,4 +104,24 @@ void main() {
       expect(find.byType(ImageFiltered), findsNothing);
     },
   );
+
+  testWidgets('formatted 9:16 content on a 10:16 tablet is padded in white', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1280);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const WhiteFrameFill(
+        aspectRatio: 1080 / 1920,
+        child: ColoredBox(color: Colors.red),
+      ),
+    );
+    expect(find.byType(ImageFiltered), findsNothing);
+    final fg = tester.getSize(find.byType(AspectRatio));
+    expect(fg.height, 1280);
+    expect(fg.width, closeTo(720, 0.5)); // whole frame, 40 px white each side
+    final bg = tester.widget<ColoredBox>(find.byType(ColoredBox).first);
+    expect(bg.color, Colors.white);
+  });
 }

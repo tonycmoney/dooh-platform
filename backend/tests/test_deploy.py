@@ -79,10 +79,13 @@ def _jpeg() -> bytes:
 
 
 def test_restore_media_file_checks_hash(admin):
+    from app.media_files import originals_dir
+
     body = _jpeg()
     media = admin.post("/api/admin/media", content=body, headers={"X-Filename": "ad.jpg"}).json()
     stored = Path(os.environ["MEDIA_DIR"]) / media["url"].rsplit("/", 1)[1]
     thumb = Path(os.environ["MEDIA_DIR"]) / media["thumbnail_url"].rsplit("/", 1)[1]
+    formatted = stored.read_bytes()
     stored.unlink()
     thumb.unlink()
 
@@ -90,10 +93,15 @@ def test_restore_media_file_checks_hash(admin):
     assert wrong.status_code == 400 and "SHA-256" in wrong.json()["detail"]
     assert not stored.exists()
 
-    # Plain JPEGs are stored untouched, so the upload bytes are the stored file.
-    ok = admin.put(f"/api/admin/media/{media['id']}/file", content=body)
+    ok = admin.put(f"/api/admin/media/{media['id']}/file", content=formatted)
     assert ok.status_code == 200, ok.text
     assert stored.exists() and thumb.exists()
+
+    # The kept original (here, the uploaded JPEG itself) can be restored too.
+    original = next(p for p in originals_dir().iterdir() if p.is_file() and p.read_bytes() == body)
+    original.unlink()
+    assert admin.put(f"/api/admin/media/{media['id']}/file?original=true", content=body).status_code == 200
+    assert original.exists()
 
 
 def test_dashboard_is_served_with_client_routes(client):
@@ -105,11 +113,3 @@ def test_dashboard_is_served_with_client_routes(client):
     assert client.get("/api/nope").headers["content-type"] == "application/json"
     assert client.get("/files/nope.jpg").status_code == 404
 
-
-def test_video_target_sizes_keep_1080():
-    from app.media_files import _target_size
-
-    assert _target_size(1080, 1920) == (1080, 1920)
-    assert _target_size(2160, 3840) == (1080, 1920)
-    assert _target_size(3840, 2160) == (1920, 1080)
-    assert _target_size(834, 1112) == (832, 1104)

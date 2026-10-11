@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import { UPLOAD_ACCEPT, api, formatBytes, uploadProblem, type ApprovalStatus, type Media, type TextSlideInput } from '../api'
-import { KindTag, LandscapeWarning, MediaThumb, Modal, TextSlidePreview } from '../components'
+import { FitModeSelect, FormatPreview, KindTag, LandscapeWarning, MediaThumb, Modal } from '../components'
 import { RECOMMENDED_SIZE, isLandscape } from '../portrait'
 
 interface UploadJob {
@@ -10,6 +10,7 @@ interface UploadJob {
   error?: string
   note?: string
   warning?: string
+  media?: Media
 }
 
 /** Files dropped from apps like Photos sometimes arrive only as items. */
@@ -36,8 +37,32 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<string | null>(null)
   const set = <K extends keyof TextSlideInput>(key: K, value: TextSlideInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
+
+  // The server renders the slide (same picture the screens get), shortly
+  // after typing stops.
+  const { text, text_color, background_color } = form
+  useEffect(() => {
+    if (!text.trim()) return
+    const abort = new AbortController()
+    let url: string | null = null
+    const timer = setTimeout(() => {
+      api
+        .previewTextSlide({ title: 'preview', text, font_size: 96, text_color, background_color }, abort.signal)
+        .then((u) => {
+          url = u
+          setPreview(u)
+        })
+        .catch(() => {})
+    }, 350)
+    return () => {
+      clearTimeout(timer)
+      abort.abort()
+      if (url) setTimeout(() => URL.revokeObjectURL(url!), 1000)
+    }
+  }, [text, text_color, background_color])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -57,14 +82,14 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
     <Modal title={initial ? 'Edit text slide' : 'New text slide'} onClose={onClose} wide>
       <form className="slide-editor" onSubmit={submit}>
         <div className="slide-preview-col">
-          <TextSlidePreview
-            text={form.text}
-            fontSize={form.font_size}
-            textColor={form.text_color}
-            backgroundColor={form.background_color}
-            width={234}
-          />
-          <span className="muted small-text">Portrait screen preview (9:16)</span>
+          <div className="frame" style={{ width: 234, height: 416 }}>
+            {preview && form.text.trim() ? (
+              <img className="frame-content" src={preview} alt="Slide preview" />
+            ) : (
+              <span className="frame-label">Type some text</span>
+            )}
+          </div>
+          <span className="muted small-text">Exactly as screens show it: 1080 × 1920, white border</span>
         </div>
         <div className="slide-fields">
         <label>
@@ -75,10 +100,7 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
           Text on screen
           <textarea rows={5} value={form.text} onChange={(e) => set('text', e.target.value)} required />
         </label>
-        <label>
-          Font size: {form.font_size}
-          <input type="range" min={24} max={300} value={form.font_size} onChange={(e) => set('font_size', Number(e.target.value))} />
-        </label>
+        <p className="muted small-text">The text is sized automatically to fill the slide.</p>
         <div className="row">
           <label>
             Text color
@@ -108,6 +130,7 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
   const [autoApprove, setAutoApprove] = useState(true)
   const [uploads, setUploads] = useState<UploadJob[]>([])
   const [editing, setEditing] = useState<Media | 'new' | null>(null)
+  const [previewing, setPreviewing] = useState<Media | null>(null)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
@@ -139,18 +162,17 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
       try {
         const media = await api.upload(file, (p) => updateJob(id, { progress: p }))
         load()
-        const note = media.converted_from ? `Uploaded and converted (${media.converted_from})` : 'Uploaded'
+        const note = `Formatted to ${RECOMMENDED_SIZE} · ${media.format_note ?? ''}`
         if (isLandscape(media)) {
-          // Stays until dismissed: the user may want to replace it.
+          // Stays until dismissed: the user may want Fill or a portrait version.
           updateJob(id, {
             note,
-            warning: `Landscape (${media.width}×${media.height}): it will play centered with blurred bars. For a full-screen ad, use ${RECOMMENDED_SIZE} px portrait.`,
+            media,
+            warning: 'Landscape: shown whole over a blurred background. Preview it, or choose Fill to crop.',
           })
-        } else if (media.converted_from) {
-          updateJob(id, { note })
-          setTimeout(() => dismissJob(id), 8000)
         } else {
-          dismissJob(id)
+          updateJob(id, { note, media })
+          setTimeout(() => dismissJob(id), 10000)
         }
       } catch (err) {
         updateJob(id, { error: (err as Error).message })
@@ -223,7 +245,10 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
       >
         Drop photos and videos here, or click to choose files
         <strong className="recommended">Recommended ad size: {RECOMMENDED_SIZE} px (portrait, 9:16)</strong>
-        <small>JPG, PNG, HEIC, MP4 or MOV · HEIC becomes JPG and MOV becomes MP4 automatically · landscape content shows with blurred bars</small>
+        <small>
+          JPG, PNG, HEIC, MP4 or MOV · each upload is formatted to {RECOMMENDED_SIZE} with a thin white border ·
+          other shapes are shown whole over a blurred background · the original is kept
+        </small>
       </div>
 
       {uploads.map((u) => (
@@ -238,16 +263,20 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
             <>
               <span className="ok-text">✓ {u.note}</span>
               <span className="warn-inline">⚠ {u.warning}</span>
+              {u.media && <button className="link" onClick={() => setPreviewing(u.media!)}>Preview</button>}
               <button className="link" onClick={() => dismissJob(u.id)}>Dismiss</button>
             </>
           ) : u.note ? (
-            <span className="ok-text">✓ {u.note}</span>
+            <>
+              <span className="ok-text">✓ {u.note}</span>
+              {u.media && <button className="link" onClick={() => setPreviewing(u.media!)}>Preview</button>}
+            </>
           ) : u.progress < 1 ? (
             <progress value={u.progress} max={1} />
           ) : (
             <>
               <progress />
-              <span className="muted">Processing… large videos can take a minute</span>
+              <span className="muted">Formatting… videos can take a minute or two</span>
             </>
           )}
         </div>
@@ -270,24 +299,28 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
         <div className="media-grid">
           {shown.map((m) => (
             <div key={m.id} className="card media-card">
-              <div className="card-frame"><MediaThumb media={m} width={135} /></div>
+              <button className="card-frame" onClick={() => setPreviewing(m)} title="Preview as screens show it">
+                <MediaThumb media={m} width={135} />
+              </button>
               <div className="media-meta">
                 <strong title={m.title}>{m.title}</strong>
                 <div className="muted">
                   <KindTag kind={m.kind} /> {m.kind === 'video' && `${(m.duration_seconds ?? 0).toFixed(1)}s · `}
-                  {m.width && m.height ? `${m.width}×${m.height} · ` : ''}
+                  {m.source_width && m.source_height ? `original ${m.source_width}×${m.source_height} · ` : ''}
                   {formatBytes(m.size_bytes)}
                 </div>
                 <div className="muted">
                   <span className={`status status-${m.status}`}>{m.status}</span> <LandscapeWarning media={m} compact />
                   {m.used_in_loops > 0 && ` · in ${m.used_in_loops} loop${m.used_in_loops > 1 ? 's' : ''}`}
                 </div>
+                <FitModeSelect media={m} onChanged={() => load()} />
               </div>
               <div className="card-actions">
                 {m.status !== 'approved' && <button className="primary small" onClick={() => act(() => api.approve(m.id))}>Approve</button>}
                 {m.status !== 'rejected' && m.status === 'pending' && (
                   <button className="small" onClick={() => act(() => api.reject(m.id))}>Reject</button>
                 )}
+                <button className="small" onClick={() => setPreviewing(m)}>Preview</button>
                 {m.kind === 'text' ? (
                   <button className="small" onClick={() => setEditing(m)}>Edit</button>
                 ) : (
@@ -298,6 +331,17 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
             </div>
           ))}
         </div>
+      )}
+
+      {previewing && (
+        <FormatPreview
+          media={media.find((m) => m.id === previewing.id) ?? previewing}
+          onClose={() => setPreviewing(null)}
+          onChanged={(m) => {
+            setPreviewing(m)
+            load()
+          }}
+        />
       )}
 
       {editing && (

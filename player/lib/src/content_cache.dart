@@ -39,7 +39,7 @@ class ContentCache {
   /// Bump when the player starts reading new manifest fields. A manifest
   /// saved by an older build may lack them, so it is used for playback but
   /// refreshed on the next sync even if the server's version is unchanged.
-  static const _savedFormat = 2;
+  static const _savedFormat = 3; // 3: `framed`
 
   Future<void> _loadSaved() async {
     try {
