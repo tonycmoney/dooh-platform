@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     website_api_key: str = ""
     order_file_hosts: str = ".supabase.co"
     order_file_max_bytes: int = 200 * 2**20
+    # Website addresses (host suffixes) hosts may be sent back to after
+    # Stripe payout setup started from the website's host pages.
+    website_hosts: str = "lovable.app"
     # Signing secret of the Stripe webhook endpoint (whsec_...); payments are
     # matched to website orders by client_reference_id.
     stripe_webhook_secret: str = ""

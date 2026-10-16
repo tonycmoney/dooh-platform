@@ -12,6 +12,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import host_revenue, schemas, stripe_api
@@ -65,6 +66,14 @@ def _host_out(db: Session, host: Host, revenue_cache: dict) -> schemas.HostOut:
     )
 
 
+def _commit_host(db: Session) -> None:
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Another host already uses that email.") from e
+
+
 def _get_host(db: Session, host_id: uuid.UUID) -> Host:
     host = db.get(Host, host_id)
     if host is None:
@@ -101,7 +110,7 @@ def create_host(body: schemas.HostIn, db: Session = Depends(get_db)):
         access_token=_new_token(),
     )
     db.add(host)
-    db.commit()
+    _commit_host(db)
     return _host_out(db, host, {})
 
 
@@ -112,7 +121,7 @@ def update_host(host_id: uuid.UUID, body: schemas.HostUpdate, db: Session = Depe
         if key in ("name", "business_name", "share_percent") and value is None:
             continue
         setattr(host, key, (value or None) if key in ("email", "phone") else value)
-    db.commit()
+    _commit_host(db)
     return _host_out(db, host, {})
 
 
@@ -201,7 +210,12 @@ def _host_by_token(db: Session, token: str) -> Host:
 
 @public.get("/{token}", response_model=schemas.HostPortalOut)
 def host_portal(token: str, month: date | None = Query(default=None), db: Session = Depends(get_db)):
-    host = _host_by_token(db, token)
+    return build_portal(db, _host_by_token(db, token), month)
+
+
+def build_portal(db: Session, host: Host, month: date | None = None) -> schemas.HostPortalOut:
+    """What a host sees: earnings for `month` (default this month), the last
+    6 months and the payouts sent."""
     _refresh_payout_status(db, host)
     this = host_revenue.current_month()
     selected = host_revenue.month_start(month) if month else this
@@ -224,15 +238,18 @@ def host_portal(token: str, month: date | None = Query(default=None), db: Sessio
 def payout_setup(token: str, db: Session = Depends(get_db)):
     """Starts (or resumes) Stripe's hosted payout onboarding for the host."""
     host = _host_by_token(db, token)
+    page = _host_link(host)
+    return start_payout_setup(db, host, refresh_url=f"{page}?setup=retry", return_url=f"{page}?setup=done")
+
+
+def start_payout_setup(db: Session, host: Host, refresh_url: str, return_url: str) -> schemas.OnboardingLinkOut:
     if not stripe_api.configured():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Payouts aren't open yet. We'll let you know.")
     try:
         if not host.stripe_account_id:
             host.stripe_account_id = stripe_api.create_express_account(host.email, host.business_name, str(host.id))
             db.commit()
-        page = _host_link(host)
-        url = stripe_api.onboarding_link(host.stripe_account_id, refresh_url=f"{page}?setup=retry",
-                                         return_url=f"{page}?setup=done")
+        url = stripe_api.onboarding_link(host.stripe_account_id, refresh_url=refresh_url, return_url=return_url)
     except stripe_api.StripeError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Stripe: {e}") from e
     return schemas.OnboardingLinkOut(url=url)

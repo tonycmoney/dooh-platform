@@ -180,7 +180,7 @@ def test_payout_setup_without_stripe_key_is_a_friendly_error(client, admin, monk
 
 def test_assigning_a_screen_moves_it_between_hosts(admin):
     _, screen = pair_device(admin)
-    a, b = make_host(admin), make_host(admin, business_name="Suds Laundromat")
+    a, b = make_host(admin), make_host(admin, business_name="Suds Laundromat", email="suds@example.com")
     admin.put(f"/api/admin/hosts/{a['id']}/screens", json={"device_ids": [screen]})
     admin.put(f"/api/admin/hosts/{b['id']}/screens", json={"device_ids": [screen]})
     hosts = {h["business_name"]: h["device_ids"] for h in admin.get("/api/admin/hosts").json()}

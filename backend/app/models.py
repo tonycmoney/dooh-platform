@@ -9,11 +9,13 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     Uuid,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -338,6 +340,10 @@ class Host(Base):
     payouts_enabled: Mapped[bool] = mapped_column(default=False)
     devices: Mapped[list["Device"]] = relationship(back_populates="host")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# One host per email: hosts sign in on the website with it.
+Index("uq_hosts_email_lower", func.lower(Host.email), unique=True)
 
 
 class HostPayout(Base):
