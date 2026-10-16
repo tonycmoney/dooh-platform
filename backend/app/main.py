@@ -44,7 +44,7 @@ async def security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     if settings.is_production:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
