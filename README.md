@@ -110,6 +110,12 @@ Item timing: each loop item plays for its set seconds (default 10). A video eith
 
 The customer website posts screen ad orders to `POST /api/website/orders`, protected by `WEBSITE_API_KEY`. They appear on the dashboard's **Orders** page, and their ads wait for approval. Stripe confirms payments through `POST /api/stripe/webhook` (signed with `STRIPE_WEBHOOK_SECRET`), so each order shows as paid, awaiting payment or abandoned. See [docs/website-orders.md](docs/website-orders.md).
 
+## Hosts and payouts
+
+Businesses that host screens are added on the **Hosts** page, which assigns their screens and gives each one a private link (`/host/<token>`, no password). The page shows the host what their screens played and earned. Each month, every advertiser subscription payment collected that month (Stripe `invoice.paid`, recurring lines only, so the one time maintenance fee is left out) is split across the screens that played that advertiser's ad, by seconds on screen. A host earns its share (20% by default, `HOST_DEFAULT_SHARE_PERCENT`).
+
+Payouts use Stripe Connect Express: the host clicks **Set up payouts** on their page and adds a bank account on Stripe; after a month ends the owner clicks **Pay** on the Hosts page, which sends that month's earnings as a Stripe transfer (once per host per month). This needs Connect enabled on the Stripe account, `STRIPE_SECRET_KEY` set on the server, and `invoice.paid` added to the webhook endpoint's events.
+
 ## Alerts and daily report
 
 With `MONITORING=true`, the server checks every screen once a minute. It emails you when a screen is **offline for 10 minutes** (no check-in) or **stops playing for 10 minutes** (online, but no plays reported; the limit is longer for loops with long videos). It emails again when the screen recovers. Each incident sends one email, and problems that clear before the email goes out send nothing.

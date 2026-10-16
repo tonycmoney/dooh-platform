@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # Signing secret of the Stripe webhook endpoint (whsec_...); payments are
     # matched to website orders by client_reference_id.
     stripe_webhook_secret: str = ""
+    # Secret API key (sk_live_... or rk_live_... with Connect write access).
+    # Needed only for host payouts through Stripe Connect.
+    stripe_secret_key: str = ""
+    # Share of ad revenue a new host earns, in percent.
+    host_default_share_percent: int = 20
 
     # Email (Resend's HTTPS API; Railway's Hobby plan blocks SMTP).
     resend_api_key: str = ""

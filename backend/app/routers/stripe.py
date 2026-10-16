@@ -1,4 +1,5 @@
-"""Stripe webhook: payment confirmations for website orders."""
+"""Stripe webhook: payment confirmations for website orders, and paid
+subscription invoices (the ad revenue hosts earn a share of)."""
 
 import json
 import logging
@@ -33,6 +34,10 @@ async def stripe_webhook(
     except (payments.BadSignature, ValueError) as e:
         log.warning("Rejected Stripe webhook: %s", e)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid Stripe signature") from e
+    if event.get("type") == "invoice.paid":
+        if ad := payments.record_invoice(db, event):
+            log.info("Stripe invoice.paid: %s cents for subscription %s", ad.amount, ad.subscription_id)
+        return {"received": True}
     payment = payments.record_event(db, event)
     if payment:
         log.info("Stripe %s: order %s is %s", event.get("type"), payment.client_reference_id, payment.status.value)

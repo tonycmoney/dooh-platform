@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import alerts, backups, orders
 from .config import settings
 from .media_files import media_dir
-from .routers import admin, player, stripe, website
+from .routers import admin, hosts, player, stripe, website
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dooh")
@@ -55,6 +55,8 @@ app.include_router(admin.public)
 app.include_router(admin.router)
 app.include_router(website.router)
 app.include_router(stripe.router)
+app.include_router(hosts.admin)
+app.include_router(hosts.public)
 app.mount("/files", StaticFiles(directory=media_dir()), name="files")
 
 

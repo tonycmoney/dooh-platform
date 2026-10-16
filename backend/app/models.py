@@ -1,9 +1,10 @@
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -80,6 +82,10 @@ class Device(Base):
         ForeignKey("loops.id", ondelete="SET NULL")
     )
     loop: Mapped["Loop | None"] = relationship(back_populates="devices")
+    host_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("hosts.id", ondelete="SET NULL"), index=True
+    )
+    host: Mapped["Host | None"] = relationship(back_populates="devices")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -284,6 +290,9 @@ class StripePayment(Base):
     currency: Mapped[str | None] = mapped_column(String(10))
     customer_email: Mapped[str | None] = mapped_column(String(255))
     livemode: Mapped[bool] = mapped_column(default=True)
+    # Set when the checkout started a subscription; links its monthly
+    # invoices (AdPayment) back to the order.
+    subscription_id: Mapped[str | None] = mapped_column(String(255), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -292,3 +301,55 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class AdPayment(Base):
+    """A paid Stripe invoice for an advertiser's subscription: the money the
+    network actually collected for ad time. Only recurring (ad placement)
+    lines count; one time fees such as the maintenance fee are left out."""
+
+    __tablename__ = "ad_payments"
+
+    invoice_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    subscription_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    amount: Mapped[int] = mapped_column(Integer)  # recurring lines only, cents
+    currency: Mapped[str] = mapped_column(String(10), default="USD")
+    paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    livemode: Mapped[bool] = mapped_column(default=True)
+
+
+class Host(Base):
+    """A business that hosts screens. It earns `share_percent` of the ad
+    revenue its screens play, sees it on a private page (/host/<token>) and is
+    paid through Stripe Connect."""
+
+    __tablename__ = "hosts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))  # contact person
+    business_name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    share_percent: Mapped[int] = mapped_column(Integer, default=20)
+    # The secret in the host's private link. Only the owner (admin) can read
+    # it; resetting it makes the old link stop working.
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    stripe_account_id: Mapped[str | None] = mapped_column(String(255))
+    payouts_enabled: Mapped[bool] = mapped_column(default=False)
+    devices: Mapped[list["Device"]] = relationship(back_populates="host")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class HostPayout(Base):
+    """Money sent to a host for one calendar month (Stripe transfer)."""
+
+    __tablename__ = "host_payouts"
+    __table_args__ = (UniqueConstraint("host_id", "month", name="uq_host_payout_month"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    host_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("hosts.id", ondelete="CASCADE"), index=True)
+    month: Mapped[date] = mapped_column(Date)  # first day of the month
+    amount: Mapped[int] = mapped_column(Integer)  # cents
+    currency: Mapped[str] = mapped_column(String(10), default="USD")
+    stripe_transfer_id: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

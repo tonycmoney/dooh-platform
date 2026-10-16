@@ -401,3 +401,93 @@ class MonitoringStatus(BaseModel):
     not_playing_minutes: int
     report_hour: int
     timezone: str
+
+
+# --- Hosts (businesses that host screens) -------------------------------------
+
+Percent = Annotated[int, Field(ge=0, le=100)]
+
+
+class HostIn(BaseModel):
+    name: ShortText
+    business_name: ShortText
+    email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+    share_percent: Percent | None = None
+
+
+class HostUpdate(BaseModel):
+    name: ShortText | None = None
+    business_name: ShortText | None = None
+    email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
+    phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
+    share_percent: Percent | None = None
+
+
+class HostScreensIn(BaseModel):
+    device_ids: list[uuid.UUID]
+
+
+class PayoutIn(BaseModel):
+    month: date  # any day in the month
+
+
+class PayoutOut(ORM):
+    month: date
+    amount: int
+    currency: str
+    stripe_transfer_id: str | None
+    created_at: datetime
+
+
+class HostScreenMonthOut(BaseModel):
+    device_id: uuid.UUID
+    name: str
+    venue_name: str | None
+    online: bool
+    last_seen_at: datetime | None
+    uptime_percent: float | None
+    plays: int
+    seconds: int
+    revenue: int
+    earnings: int
+
+
+class HostMonthOut(BaseModel):
+    month: date
+    share_percent: int
+    revenue: int
+    earnings: int
+    screens: list[HostScreenMonthOut]
+    payout: PayoutOut | None
+
+
+class HostOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    business_name: str
+    email: str | None
+    phone: str | None
+    share_percent: int
+    link: str
+    payout_status: str  # not_started | pending | ready
+    device_ids: list[uuid.UUID]
+    this_month: HostMonthOut
+    last_month: HostMonthOut
+    created_at: datetime
+
+
+class HostPortalOut(BaseModel):
+    business_name: str
+    name: str
+    share_percent: int
+    timezone: str
+    payout_status: str
+    payouts_available: bool
+    month: HostMonthOut
+    history: list[HostMonthOut]
+    payouts: list[PayoutOut]
+
+
+class OnboardingLinkOut(BaseModel):
+    url: str

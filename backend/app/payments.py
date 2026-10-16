@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import PAYMENT_PRECEDENCE, PaymentStatus, StripePayment
+from datetime import datetime, timezone
+
+from .models import PAYMENT_PRECEDENCE, AdPayment, PaymentStatus, StripePayment
 
 SIGNATURE_TOLERANCE_SECONDS = 300
 
@@ -76,8 +78,68 @@ def record_event(db: Session, event: dict) -> StripePayment | None:
     payment.currency = (session.get("currency") or payment.currency or "").upper() or None
     payment.customer_email = (session.get("customer_details") or {}).get("email") or payment.customer_email
     payment.livemode = bool(event.get("livemode", True))
+    subscription = session.get("subscription")
+    if isinstance(subscription, dict):
+        subscription = subscription.get("id")
+    payment.subscription_id = subscription or payment.subscription_id
     db.commit()
     return payment
+
+
+# --- Advertiser subscription invoices (ad revenue for hosts) -------------------
+
+
+def _invoice_subscription(invoice: dict) -> str | None:
+    """The subscription an invoice bills; Stripe moved this field between
+    API versions, so look in both places."""
+    sub = invoice.get("subscription")
+    if not sub:
+        sub = (((invoice.get("parent") or {}).get("subscription_details")) or {}).get("subscription")
+    if isinstance(sub, dict):
+        sub = sub.get("id")
+    return sub or None
+
+
+def _is_recurring(line: dict) -> bool:
+    if (line.get("price") or {}).get("recurring"):
+        return True
+    if line.get("type") == "subscription":
+        return True
+    parent = line.get("parent") or {}
+    return parent.get("type") == "subscription_item_details" or bool(parent.get("subscription_item_details"))
+
+
+def recurring_amount(invoice: dict) -> int:
+    """Cents billed for ad placement: the invoice's recurring lines. One time
+    items on the first invoice (the $150 maintenance fee) are left out."""
+    lines = ((invoice.get("lines") or {}).get("data")) or []
+    return sum(int(line.get("amount") or 0) for line in lines if _is_recurring(line))
+
+
+def record_invoice(db: Session, event: dict) -> AdPayment | None:
+    """Stores an invoice.paid event for a subscription. Replays are safe."""
+    if event.get("type") != "invoice.paid":
+        return None
+    invoice = (event.get("data") or {}).get("object") or {}
+    if invoice.get("object") != "invoice" or not invoice.get("id"):
+        return None
+    subscription = _invoice_subscription(invoice)
+    amount = recurring_amount(invoice)
+    if not subscription or amount <= 0:
+        return None
+    paid_ts = ((invoice.get("status_transitions") or {}).get("paid_at")) or invoice.get("created") or event.get("created")
+    paid_at = datetime.fromtimestamp(int(paid_ts), timezone.utc) if paid_ts else datetime.now(timezone.utc)
+    row = db.get(AdPayment, invoice["id"])
+    if row is None:
+        row = AdPayment(invoice_id=invoice["id"])
+        db.add(row)
+    row.subscription_id = subscription
+    row.amount = amount
+    row.currency = (invoice.get("currency") or "usd").upper()
+    row.paid_at = paid_at
+    row.livemode = bool(event.get("livemode", True))
+    db.commit()
+    return row
 
 
 @dataclass

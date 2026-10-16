@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api, getToken, setToken, setUnauthorizedHandler } from './api'
 import Backups from './pages/Backups'
+import HostPortal from './pages/HostPortal'
+import Hosts from './pages/Hosts'
 import LoopEditor from './pages/LoopEditor'
 import Loops from './pages/Loops'
 import MediaPage from './pages/Media'
@@ -47,6 +49,18 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 export default function App() {
+  // Hosts' private pages need no admin login.
+  if (useLocation().pathname.startsWith('/host/')) {
+    return (
+      <Routes>
+        <Route path="/host/:token" element={<HostPortal />} />
+      </Routes>
+    )
+  }
+  return <Admin />
+}
+
+function Admin() {
   const [loggedIn, setLoggedIn] = useState(() => Boolean(getToken()))
   const [pending, setPending] = useState(0)
   const [ordersToReview, setOrdersToReview] = useState(0)
@@ -87,6 +101,7 @@ export default function App() {
           Orders {ordersToReview > 0 && <span className="badge">{ordersToReview}</span>}
         </NavLink>
         <NavLink to="/loops">Loops</NavLink>
+        <NavLink to="/hosts">Hosts</NavLink>
         <NavLink to="/reports">Reports</NavLink>
         <NavLink to="/backups">Backups</NavLink>
         <button
@@ -107,6 +122,7 @@ export default function App() {
           <Route path="/orders" element={<Orders onChanged={refreshCounts} />} />
           <Route path="/loops" element={<Loops />} />
           <Route path="/loops/:id" element={<LoopEditor />} />
+          <Route path="/hosts" element={<Hosts />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="*" element={<Navigate to="/screens" replace />} />

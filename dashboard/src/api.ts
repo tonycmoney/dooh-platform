@@ -203,6 +203,100 @@ export interface PlayLog {
   duration_ms: number
 }
 
+export interface HostPayout {
+  month: string
+  amount: number
+  currency: string
+  stripe_transfer_id: string | null
+  created_at: string
+}
+
+export interface HostScreenMonth {
+  device_id: string
+  name: string
+  venue_name: string | null
+  online: boolean
+  last_seen_at: string | null
+  uptime_percent: number | null
+  plays: number
+  seconds: number
+  /** Cents the screen brought in. */
+  revenue: number
+  /** The host's share, cents. */
+  earnings: number
+}
+
+export interface HostMonth {
+  month: string
+  share_percent: number
+  revenue: number
+  earnings: number
+  screens: HostScreenMonth[]
+  payout: HostPayout | null
+}
+
+export type PayoutStatus = 'not_started' | 'pending' | 'ready'
+
+export interface Host {
+  id: string
+  name: string
+  business_name: string
+  email: string | null
+  phone: string | null
+  share_percent: number
+  link: string
+  payout_status: PayoutStatus
+  device_ids: string[]
+  this_month: HostMonth
+  last_month: HostMonth
+  created_at: string
+}
+
+export interface HostInput {
+  name: string
+  business_name: string
+  email?: string | null
+  phone?: string | null
+  share_percent?: number
+}
+
+export interface HostPortal {
+  business_name: string
+  name: string
+  share_percent: number
+  timezone: string
+  payout_status: PayoutStatus
+  payouts_available: boolean
+  month: HostMonth
+  history: HostMonth[]
+  payouts: HostPayout[]
+}
+
+export function dollars(cents: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
+}
+
+export function monthLabel(month: string) {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
+/** The host's private page (no admin login): plain fetches, so a bad link
+ * never signs the owner out of the dashboard. */
+async function hostRequest<T>(method: string, path: string): Promise<T> {
+  const res = await fetch(path, { method })
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw new ApiError(res.status, errorMessage(data, `${res.status} ${res.statusText}`))
+  return data as T
+}
+
+export const hostApi = {
+  get: (token: string, month?: string) =>
+    hostRequest<HostPortal>('GET', `/api/host/${encodeURIComponent(token)}${month ? `?month=${month}` : ''}`),
+  payoutSetup: (token: string) =>
+    hostRequest<{ url: string }>('POST', `/api/host/${encodeURIComponent(token)}/payout-setup`),
+}
+
 const TOKEN_KEY = 'dooh-admin-token'
 
 export function getToken(): string | null {
@@ -379,6 +473,15 @@ export const api = {
   testEmail: () => request<{ sent_to: string[] }>('POST', '/api/admin/alerts/test-email'),
   dailyReport: (day?: string) => request<DailyReport>('GET', `/api/admin/reports/daily${day ? `?day=${day}` : ''}`),
   emailReport: (day: string) => request<{ sent_to: string[] }>('POST', `/api/admin/reports/daily/email?day=${day}`),
+
+  listHosts: () => request<Host[]>('GET', '/api/admin/hosts'),
+  createHost: (body: HostInput) => request<Host>('POST', '/api/admin/hosts', body),
+  updateHost: (id: string, body: Partial<HostInput>) => request<Host>('PATCH', `/api/admin/hosts/${id}`, body),
+  deleteHost: (id: string) => request<void>('DELETE', `/api/admin/hosts/${id}`),
+  resetHostLink: (id: string) => request<Host>('POST', `/api/admin/hosts/${id}/reset-link`),
+  setHostScreens: (id: string, device_ids: string[]) =>
+    request<Host>('PUT', `/api/admin/hosts/${id}/screens`, { device_ids }),
+  payHost: (id: string, month: string) => request<HostPayout>('POST', `/api/admin/hosts/${id}/payouts`, { month }),
 
   listBackups: () => request<BackupList>('GET', '/api/admin/backups'),
   backupNow: () => request<Backup>('POST', '/api/admin/backups'),
