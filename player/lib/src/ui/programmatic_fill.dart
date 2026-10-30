@@ -53,6 +53,10 @@ class _ProgrammaticFillState extends State<ProgrammaticFill> {
   Timer? _refresh;
   bool _failed = false;
 
+  /// The current load hit a main frame error; Android then still reports
+  /// onPageFinished for its own error page, which must stay hidden.
+  bool _errorThisLoad = false;
+
   @override
   void initState() {
     super.initState();
@@ -68,13 +72,29 @@ class _ProgrammaticFillState extends State<ProgrammaticFill> {
               !request.isMainFrame || _allowed(request.url)
               ? NavigationDecision.navigate
               : NavigationDecision.prevent,
-          onPageStarted: (_) => _injectShim(),
+          onPageStarted: (_) {
+            _errorThisLoad = false;
+            _injectShim();
+          },
           onPageFinished: (_) {
             _injectShim();
-            if (_failed && mounted) setState(() => _failed = false);
+            if (!_errorThisLoad && _failed && mounted) {
+              setState(() => _failed = false);
+            }
           },
           onWebResourceError: (error) {
-            if (error.isForMainFrame ?? true) _scheduleRetry();
+            if (error.isForMainFrame ?? true) {
+              _errorThisLoad = true;
+              _scheduleRetry();
+            }
+          },
+          onHttpError: (error) {
+            // A 5xx on the page itself (not one of its ads): try again later.
+            final status = error.response?.statusCode ?? 0;
+            if (status >= 500 && error.request?.uri.host == Uri.parse(widget.url).host) {
+              _errorThisLoad = true;
+              _scheduleRetry();
+            }
           },
         ),
       );
@@ -177,7 +197,8 @@ class _ProgrammaticFillState extends State<ProgrammaticFill> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        WebViewWidget(controller: _web),
+        // Nobody should tap their way out of the ad player on a kiosk.
+        IgnorePointer(child: WebViewWidget(controller: _web)),
         if (_failed)
           const ColoredBox(
             color: Colors.black,

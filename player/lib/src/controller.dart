@@ -53,7 +53,7 @@ class PlayerController extends ChangeNotifier {
 
   /// Programmatic time is logged in pieces this long, so the dashboard's
   /// play history stays current during a long stretch of fill.
-  static const programmaticChunk = Duration(minutes: 10);
+  static const programmaticChunk = Duration(minutes: 2);
   final List<Timer> _timers = [];
   bool _disposed = false;
 
