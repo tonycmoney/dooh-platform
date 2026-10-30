@@ -230,6 +230,7 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
     venue_address: screen.venue_address ?? '',
     loop_id: screen.loop_id ?? '',
   })
+  const [fill, setFill] = useState(screen.programmatic_fill)
   const [plays, setPlays] = useState<PlayLog[]>([])
   const [error, setError] = useState('')
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
@@ -248,6 +249,7 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
         name: form.name,
         venue_name: form.venue_name,
         venue_address: form.venue_address,
+        programmatic_fill: fill,
         ...(loopChanged ? (form.loop_id ? { loop_id: form.loop_id } : { clear_loop: true }) : {}),
       })
       onSaved()
@@ -268,6 +270,17 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
         <label>Screen name<input value={form.name} onChange={(e) => set('name', e.target.value)} required /></label>
         <label>Venue name<input value={form.venue_name} onChange={(e) => set('venue_name', e.target.value)} required /></label>
         <label>Venue address<input value={form.venue_address} onChange={(e) => set('venue_address', e.target.value)} /></label>
+        <label className="check-row">
+          <input type="checkbox" checked={fill} onChange={(e) => setFill(e.target.checked)} />
+          Play Trillboards ads when this screen has no ads of mine
+        </label>
+        {fill && screen.programmatic_status !== 'ready' && (
+          <div className="muted">
+            {screen.programmatic_status === 'pending' && 'Connecting to Trillboards on the next check in…'}
+            {screen.programmatic_status === 'error' && `Trillboards: ${screen.programmatic_error}`}
+            {screen.programmatic_status === 'off' && 'Trillboards is not set up on the server (TRILLBOARDS_API_KEY).'}
+          </div>
+        )}
         <label>
           Loop
           <select value={form.loop_id} onChange={(e) => set('loop_id', e.target.value)}>
@@ -387,6 +400,8 @@ export default function Screens() {
                   <td>
                     {s.loop_name ?? <span className="muted">None</span>}
                     {s.loop_name && !s.in_sync && <div className="muted">updating…</div>}
+                    {s.programmatic_status === 'ready' && <div className="muted">+ Trillboards fill</div>}
+                    {s.programmatic_status === 'error' && <div className="muted" title={s.programmatic_error ?? ''}>Trillboards error</div>}
                   </td>
                   <td><Battery level={s.battery_level} charging={s.is_charging} /></td>
                   <td className="muted">{s.app_version ?? '—'}</td>

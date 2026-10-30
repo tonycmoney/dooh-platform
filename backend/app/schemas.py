@@ -100,6 +100,8 @@ class Manifest(BaseModel):
     loop_id: uuid.UUID | None
     loop_name: str | None
     items: list[ManifestItem]
+    # Shown full screen (Trillboards programmatic ads) when items is empty.
+    fallback_url: str | None = None
 
 
 class PlayIn(BaseModel):
@@ -253,6 +255,8 @@ class DeviceUpdate(BaseModel):
     venue_address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
     loop_id: uuid.UUID | None = None
     clear_loop: bool = False
+    # Show Trillboards programmatic ads when the screen has none of ours.
+    programmatic_fill: bool | None = None
 
 
 class DeviceOut(ORM):
@@ -276,6 +280,11 @@ class DeviceOut(ORM):
     loop_name: str | None
     in_sync: bool
     paired_at: datetime | None
+    # Trillboards programmatic fill: "off", "pending" (not registered yet),
+    # "error" (see programmatic_error) or "ready".
+    programmatic_fill: bool = True
+    programmatic_status: str = "off"
+    programmatic_error: str | None = None
 
 
 class PlayLogOut(ORM):

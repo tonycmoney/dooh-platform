@@ -45,6 +45,15 @@ class PlayerController extends ChangeNotifier {
   DateTime? lastContactAt;
 
   ManifestItem? nowPlaying;
+
+  /// Trillboards programmatic ads are on screen (see ProgrammaticFill).
+  bool programmaticActive = false;
+  DateTime? _programmaticSince;
+  Timer? _programmaticChunk;
+
+  /// Programmatic time is logged in pieces this long, so the dashboard's
+  /// play history stays current during a long stretch of fill.
+  static const programmaticChunk = Duration(minutes: 10);
   final List<Timer> _timers = [];
   bool _disposed = false;
 
@@ -143,7 +152,9 @@ class PlayerController extends ChangeNotifier {
         ...await telemetry.snapshot(),
         'app_version': appVersion,
         'now_playing_media_id': nowPlaying?.mediaId,
-        'now_playing_title': nowPlaying?.title,
+        'now_playing_title':
+            nowPlaying?.title ??
+            (programmaticActive ? PlayLog.programmaticTitle : null),
         'manifest_version': cache.current.value.version.isEmpty
             ? null
             : cache.current.value.version,
@@ -172,9 +183,52 @@ class PlayerController extends ChangeNotifier {
   }
 
   void onItemStarted(ManifestItem item) {
+    onProgrammaticStopped();
     final changed = nowPlaying?.itemId != item.itemId;
     nowPlaying = item;
     if (changed) _notify();
+  }
+
+  /// No paid ad on screen (empty loop): the idle screen or Trillboards fill.
+  void onIdle() {
+    if (nowPlaying != null) {
+      nowPlaying = null;
+      _notify();
+    }
+  }
+
+  void onProgrammaticStarted() {
+    onIdle();
+    if (programmaticActive) return;
+    programmaticActive = true;
+    _programmaticSince = DateTime.now();
+    _programmaticChunk?.cancel();
+    _programmaticChunk = Timer.periodic(programmaticChunk, (_) {
+      _logProgrammatic();
+      _programmaticSince = DateTime.now();
+    });
+  }
+
+  void onProgrammaticStopped() {
+    if (!programmaticActive) return;
+    _programmaticChunk?.cancel();
+    _programmaticChunk = null;
+    _logProgrammatic();
+    programmaticActive = false;
+    _programmaticSince = null;
+  }
+
+  void _logProgrammatic() {
+    final since = _programmaticSince;
+    if (since == null) return;
+    playLog.recordProgrammatic(
+      startedAt: since,
+      played: DateTime.now().difference(since),
+    );
+  }
+
+  void onProgrammaticEvent(String name, Map<String, dynamic> data) {
+    debugPrint('Trillboards: $name $data');
   }
 
   void onItemFinished(ManifestItem item, DateTime startedAt, Duration played) {
@@ -209,6 +263,7 @@ class PlayerController extends ChangeNotifier {
     store.claimSecret = null;
     store.pairingCode = null;
     api.token = null;
+    onProgrammaticStopped();
     nowPlaying = null;
     await cache.clear();
     _enterPairing();
@@ -241,6 +296,7 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _programmaticChunk?.cancel();
     _cancelTimers();
     super.dispose();
   }

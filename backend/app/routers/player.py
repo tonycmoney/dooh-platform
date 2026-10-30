@@ -2,13 +2,13 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import schemas, services
+from .. import schemas, services, trillboards
 from ..db import get_db
 from ..models import Device, PlayLog
 from ..security import new_pairing_code, new_secret, require_device, sha256_hex
@@ -74,12 +74,13 @@ def pairing_status(body: schemas.PairingStatusIn, db: Session = Depends(get_db))
 
 @router.get("/manifest", response_model=schemas.Manifest)
 def manifest(device: Device = Depends(require_device), db: Session = Depends(get_db)):
-    return services.build_manifest(db, device.loop_id)
+    return services.device_manifest(db, device)
 
 
 @router.post("/heartbeat", response_model=schemas.HeartbeatOut)
 def heartbeat(
     body: schemas.HeartbeatIn,
+    background: BackgroundTasks,
     device: Device = Depends(require_device),
     db: Session = Depends(get_db),
 ):
@@ -103,8 +104,13 @@ def heartbeat(
     services.record_uptime(db, device.id, now)
     db.commit()
 
+    # First heartbeat of a paired screen (or a retry after a failure):
+    # register it with Trillboards so it can show programmatic ads when idle.
+    if trillboards.needs_registration(device, now):
+        background.add_task(trillboards.register_in_background, device.id)
+
     return schemas.HeartbeatOut(
-        manifest_version=services.build_manifest(db, device.loop_id).version,
+        manifest_version=services.device_manifest(db, device).version,
         name=device.name,
         venue_name=device.venue_name,
         maintenance_pin=services.get_maintenance_pin(db),

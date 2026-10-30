@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -88,6 +89,14 @@ class Device(Base):
         ForeignKey("hosts.id", ondelete="SET NULL"), index=True
     )
     host: Mapped["Host | None"] = relationship(back_populates="devices")
+
+    # Trillboards programmatic fill (see trillboards.py): shown when the
+    # screen has no paid ads to play.
+    programmatic_fill: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    trillboards_embed_url: Mapped[str | None] = mapped_column(Text)
+    trillboards_screen_id: Mapped[str | None] = mapped_column(String(100))
+    trillboards_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    trillboards_error: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

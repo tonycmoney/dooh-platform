@@ -116,6 +116,16 @@ Businesses that host screens are added on the **Hosts** page, which assigns thei
 
 Payouts use Stripe Connect Express: the host clicks **Set up payouts** on their page and adds a bank account on Stripe; after a month ends the owner clicks **Pay** on the Hosts page, which sends that month's earnings as a Stripe transfer (once per host per month). This needs Connect enabled on the Stripe account, `STRIPE_SECRET_KEY` set on the server, and `invoice.paid` added to the webhook endpoint's events.
 
+## Trillboards programmatic fill
+
+When a screen has no paid ads in its loop (or no loop), it shows [Trillboards](https://trillboards.com) programmatic ads instead, so idle screen time still earns money. Trillboards sells those ads, counts the impressions and pays out through Stripe Connect from their screen owner portal.
+
+- Set `TRILLBOARDS_API_KEY` (a `trb_partner_...` key from `npx @trillboards/ads-sdk init`). The key stays on the server.
+- On a paired screen's first heartbeat the backend registers it with Trillboards (`POST /v1/partner/device`, portrait 1080 × 1920, its GPS and venue) and stores the screen's embed URL. A failed registration is shown on the Screens page and retried every 15 minutes.
+- The manifest carries that URL as `fallback_url`. With nothing of ours to play, the tablet opens it full screen in a WebView that can't navigate away from Trillboards. Paid ads take over again at once when they're assigned.
+- Time on Trillboards is logged as plays titled "Trillboards programmatic" with no media, so it never counts toward an advertiser's plays or host revenue splits.
+- Each screen has a "Play Trillboards ads when this screen has no ads of mine" switch on the Screens page; `TRILLBOARDS_ENABLED=false` turns it off everywhere.
+
 ## Alerts and daily report
 
 With `MONITORING=true`, the server checks every screen once a minute. It emails you when a screen is **offline for 10 minutes** (no check-in) or **stops playing for 10 minutes** (online, but no plays reported; the limit is longer for loops with long videos). It emails again when the screen recovers. Each incident sends one email, and problems that clear before the email goes out send nothing.

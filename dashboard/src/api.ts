@@ -90,6 +90,10 @@ export interface Screen {
   loop_name: string | null
   in_sync: boolean
   paired_at: string | null
+  /** Trillboards programmatic ads when the screen has none of ours. */
+  programmatic_fill: boolean
+  programmatic_status: 'off' | 'pending' | 'error' | 'ready'
+  programmatic_error: string | null
 }
 
 export interface Backup {
@@ -463,7 +467,7 @@ export const api = {
   }) => request<Screen>('POST', '/api/admin/screens/pair', body),
   updateScreen: (
     id: string,
-    body: Partial<{ name: string; venue_name: string; venue_address: string; loop_id: string; clear_loop: boolean }>,
+    body: Partial<{ name: string; venue_name: string; venue_address: string; loop_id: string; clear_loop: boolean; programmatic_fill: boolean }>,
   ) => request<Screen>('PATCH', `/api/admin/screens/${id}`, body),
   unpairScreen: (id: string) => request<void>('DELETE', `/api/admin/screens/${id}`),
   screenPlays: (id: string) => request<PlayLog[]>('GET', `/api/admin/screens/${id}/plays?limit=20`),

@@ -79,6 +79,31 @@ class PlayLog {
     _persist();
   }
 
+  /// Time the screen spent on Trillboards programmatic ads. No media id, so
+  /// it never counts toward an advertiser's plays or a host's ad revenue.
+  void recordProgrammatic({
+    required DateTime startedAt,
+    required Duration played,
+  }) {
+    if (played < const Duration(seconds: 1)) return;
+    _pending.add(
+      PlayRecord(
+        id: _uuid.v4(),
+        mediaId: null,
+        mediaTitle: programmaticTitle,
+        loopId: null,
+        startedAt: startedAt,
+        durationMs: played.inMilliseconds,
+      ),
+    );
+    if (_pending.length > _maxQueued) {
+      _pending.removeRange(0, _pending.length - _maxQueued);
+    }
+    _persist();
+  }
+
+  static const programmaticTitle = 'Trillboards programmatic';
+
   /// Sends queued plays in batches; stops at the first network error.
   Future<void> flush(PlayerApi api) async {
     if (_flushing || _pending.isEmpty) return;

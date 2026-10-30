@@ -39,7 +39,7 @@ class ContentCache {
   /// Bump when the player starts reading new manifest fields. A manifest
   /// saved by an older build may lack them, so it is used for playback but
   /// refreshed on the next sync even if the server's version is unchanged.
-  static const _savedFormat = 3; // 3: `framed`
+  static const _savedFormat = 4; // 3: `framed`, 4: `fallback_url`
 
   Future<void> _loadSaved() async {
     try {
@@ -54,6 +54,7 @@ class ContentCache {
           loopId: saved.loopId,
           loopName: saved.loopName,
           items: saved.items,
+          fallbackUrl: saved.fallbackUrl,
         );
       }
       if (_isComplete(saved)) current.value = saved;

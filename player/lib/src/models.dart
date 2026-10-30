@@ -126,12 +126,17 @@ class Manifest {
     this.loopId,
     this.loopName,
     required this.items,
+    this.fallbackUrl,
   });
 
   final String version;
   final String? loopId;
   final String? loopName;
   final List<ManifestItem> items;
+
+  /// Page shown full screen when [items] is empty: Trillboards programmatic
+  /// ads, so the screen earns money while it has no paid ads of ours.
+  final String? fallbackUrl;
 
   static const empty = Manifest(version: '', items: []);
 
@@ -142,6 +147,7 @@ class Manifest {
     items: (json['items'] as List<dynamic>)
         .map((e) => ManifestItem.fromJson(e as Map<String, dynamic>))
         .toList(),
+    fallbackUrl: json['fallback_url'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -149,6 +155,7 @@ class Manifest {
     'loop_id': loopId,
     'loop_name': loopName,
     'items': items.map((e) => e.toJson()).toList(),
+    'fallback_url': fallbackUrl,
   };
 }
 

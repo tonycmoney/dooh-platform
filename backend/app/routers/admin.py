@@ -491,6 +491,9 @@ def pair_screen(body: schemas.PairIn, db: Session = Depends(get_db)):
         for field in ("latitude", "longitude", "location_accuracy_m", "location_at"):
             if getattr(device, field) is None:
                 setattr(device, field, getattr(replaced, field))
+        # Same Trillboards screen too, so its programmatic earnings carry on.
+        for field in ("programmatic_fill", "trillboards_embed_url", "trillboards_screen_id"):
+            setattr(device, field, getattr(replaced, field))
         db.delete(replaced)
     db.commit()
     db.refresh(device)
@@ -509,6 +512,8 @@ def update_screen(device_id: uuid.UUID, body: schemas.DeviceUpdate, db: Session 
     elif body.loop_id:
         _check_loop(db, body.loop_id)
         device.loop_id = body.loop_id
+    if body.programmatic_fill is not None:
+        device.programmatic_fill = body.programmatic_fill
     db.commit()
     db.refresh(device)
     return services.device_out(db, device)

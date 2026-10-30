@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
-from . import formatting, schemas
+from . import formatting, schemas, trillboards
 from .config import settings
 from .models import ApprovalStatus, Device, DeviceUptime, Loop, LoopItem, Media, MediaKind, Setting
 
@@ -128,11 +128,17 @@ def loop_out(loop: Loop) -> schemas.LoopOut:
 EMPTY_MANIFEST_VERSION = hashlib.sha256(b"empty").hexdigest()
 
 
-def build_manifest(db: Session, loop_id) -> schemas.Manifest:
+def build_manifest(db: Session, loop_id, fallback_url: str | None = None) -> schemas.Manifest:
+    """fallback_url: what the screen shows when it has no paid ads to play
+    (Trillboards programmatic fill), part of the version so a change reaches
+    the tablet on its next heartbeat."""
     loop = load_loop(db, loop_id) if loop_id else None
     if loop is None:
+        version = EMPTY_MANIFEST_VERSION
+        if fallback_url:
+            version = hashlib.sha256(f"empty|{fallback_url}".encode()).hexdigest()
         return schemas.Manifest(
-            version=EMPTY_MANIFEST_VERSION, loop_id=None, loop_name=None, items=[]
+            version=version, loop_id=None, loop_name=None, items=[], fallback_url=fallback_url
         )
 
     items: list[schemas.ManifestItem] = []
@@ -173,6 +179,7 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
             "loop": str(loop.id),
             "name": loop.name,
             "items": [i.model_dump(mode="json") for i in items],
+            **({"fallback_url": fallback_url} if fallback_url else {}),
         },
         sort_keys=True,
     )
@@ -181,7 +188,12 @@ def build_manifest(db: Session, loop_id) -> schemas.Manifest:
         loop_id=loop.id,
         loop_name=loop.name,
         items=items,
+        fallback_url=fallback_url,
     )
+
+
+def device_manifest(db: Session, device: Device) -> schemas.Manifest:
+    return build_manifest(db, device.loop_id, trillboards.fallback_url(device))
 
 
 # --- Devices ------------------------------------------------------------------
@@ -211,7 +223,7 @@ def is_online(device: Device, now: datetime | None = None) -> bool:
 
 
 def device_out(db: Session, device: Device, now: datetime | None = None) -> schemas.DeviceOut:
-    expected = build_manifest(db, device.loop_id).version
+    expected = device_manifest(db, device).version
     return schemas.DeviceOut(
         id=device.id,
         device_uid=device.device_uid,
@@ -233,4 +245,17 @@ def device_out(db: Session, device: Device, now: datetime | None = None) -> sche
         loop_name=device.loop.name if device.loop else None,
         in_sync=device.manifest_version == expected,
         paired_at=device.paired_at,
+        programmatic_fill=device.programmatic_fill,
+        programmatic_status=programmatic_status(device),
+        programmatic_error=device.trillboards_error,
     )
+
+
+def programmatic_status(device: Device) -> str:
+    if not device.programmatic_fill or not settings.trillboards_enabled:
+        return "off"
+    if device.trillboards_embed_url:
+        return "ready"
+    if not trillboards.configured():
+        return "off"
+    return "error" if device.trillboards_error else "pending"
