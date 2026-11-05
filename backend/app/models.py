@@ -368,3 +368,35 @@ class HostPayout(Base):
     currency: Mapped[str] = mapped_column(String(10), default="USD")
     stripe_transfer_id: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class QrLink(Base):
+    """A short link printed as a QR code on an ad. Scanning it opens
+    /s/<code>, which records the scan and sends the phone on to target_url."""
+
+    __tablename__ = "qr_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(300))  # usually the advertiser's name
+    target_url: Mapped[str] = mapped_column(Text)
+    # The ad that carries this QR code. Not a foreign key: scan history must
+    # survive deleting or replacing the ad.
+    media_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class QrScan(Base):
+    """One scan of a QR link. `visitor` is a daily, salted hash of the phone's
+    address and browser, so unique scanners can be counted without storing
+    who they are."""
+
+    __tablename__ = "qr_scans"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    link_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("qr_links.id", ondelete="CASCADE"), index=True
+    )
+    scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    visitor: Mapped[str] = mapped_column(String(64))

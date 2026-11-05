@@ -500,3 +500,44 @@ class HostPortalOut(BaseModel):
 
 class OnboardingLinkOut(BaseModel):
     url: str
+
+
+# --- QR scan tracking ---------------------------------------------------------
+
+
+class QrLinkIn(BaseModel):
+    label: ShortText
+    target_url: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^https?://", max_length=2000)]
+    media_id: uuid.UUID | None = None
+    # Optional custom code; one is generated when left out.
+    code: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{3,32}$")] | None = None
+
+
+class QrLinkUpdate(BaseModel):
+    label: ShortText | None = None
+    target_url: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^https?://", max_length=2000)] | None = None
+    media_id: uuid.UUID | None = None
+    active: bool | None = None
+
+
+class QrLinkOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    label: str
+    target_url: str
+    short_url: str
+    media_id: uuid.UUID | None
+    media_title: str | None
+    active: bool
+    created_at: datetime
+    scans_total: int
+    scans_7d: int
+    scans_30d: int
+    unique_30d: int
+    last_scan_at: datetime | None
+
+
+class QrDay(BaseModel):
+    day: date
+    scans: int
+    unique: int

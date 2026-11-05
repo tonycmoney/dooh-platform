@@ -9,6 +9,7 @@ import Loops from './pages/Loops'
 import MediaPage from './pages/Media'
 import Orders from './pages/Orders'
 import Reports from './pages/Reports'
+import Scans from './pages/Scans'
 import Screens from './pages/Screens'
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -102,6 +103,7 @@ function Admin() {
         </NavLink>
         <NavLink to="/loops">Loops</NavLink>
         <NavLink to="/hosts">Hosts</NavLink>
+        <NavLink to="/scans">QR scans</NavLink>
         <NavLink to="/reports">Reports</NavLink>
         <NavLink to="/backups">Backups</NavLink>
         <button
@@ -123,6 +125,7 @@ function Admin() {
           <Route path="/loops" element={<Loops />} />
           <Route path="/loops/:id" element={<LoopEditor />} />
           <Route path="/hosts" element={<Hosts />} />
+          <Route path="/scans" element={<Scans />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/backups" element={<Backups />} />
           <Route path="*" element={<Navigate to="/screens" replace />} />

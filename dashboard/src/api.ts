@@ -420,6 +420,30 @@ function uploadTo<T>(path: string, file: File, onProgress: (fraction: number) =>
   })
 }
 
+
+export interface QrLink {
+  id: string
+  code: string
+  label: string
+  target_url: string
+  short_url: string
+  media_id: string | null
+  media_title: string | null
+  active: boolean
+  created_at: string
+  scans_total: number
+  scans_7d: number
+  scans_30d: number
+  unique_30d: number
+  last_scan_at: string | null
+}
+
+export interface QrDay {
+  day: string
+  scans: number
+  unique: number
+}
+
 export const api = {
   login: (password: string) => request<{ token: string }>('POST', '/api/admin/login', { password }),
   stats: () =>
@@ -490,6 +514,11 @@ export const api = {
   listBackups: () => request<BackupList>('GET', '/api/admin/backups'),
   backupNow: () => request<Backup>('POST', '/api/admin/backups'),
   downloadBackup,
+
+  listQrLinks: () => request<QrLink[]>('GET', '/api/admin/qr-links'),
+  qrDaily: (id: string, days = 30) => request<QrDay[]>('GET', `/api/admin/qr-links/${id}/daily?days=${days}`),
+  updateQrLink: (id: string, body: Partial<Pick<QrLink, 'label' | 'target_url' | 'active'>>) =>
+    request<QrLink>('PATCH', `/api/admin/qr-links/${id}`, body),
 }
 
 /** The exact 1080×1920 picture a text slide will be, as an object URL
