@@ -20,6 +20,7 @@ import hmac
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -70,10 +71,14 @@ def send_email(subject: str, text: str) -> None:
         headers={
             "Authorization": f"Bearer {RESEND_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "lfa-receptionist-webhook/1.0",
         },
         method="POST",
     )
-    urllib.request.urlopen(req, timeout=15).read()
+    try:
+        urllib.request.urlopen(req, timeout=15).read()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Resend {exc.code}: {exc.read().decode(errors='replace')}")
 
 
 class Handler(BaseHTTPRequestHandler):
