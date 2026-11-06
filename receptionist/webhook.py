@@ -29,6 +29,10 @@ RESEND_KEY = os.environ.get("RESEND_API_KEY", "")
 NOTIFY_TO = os.environ.get("NOTIFY_TO", "tcantave@localflyerads.com")
 NOTIFY_FROM = os.environ.get("NOTIFY_FROM", "receptionist@localflyerads.com")
 MAX_SKEW = 30 * 60  # reject events older than 30 minutes
+# "w" = half second pause. Press 1 twice in case the first lands before
+# Google Voice starts listening.
+ACCEPT_DIGITS = os.environ.get("ACCEPT_DIGITS", "ww1wwww1")
+ELEVENLABS_INBOUND = "https://api.us.elevenlabs.io/twilio/inbound_call"
 
 
 def valid_signature(header: str, body: bytes) -> bool:
@@ -83,12 +87,33 @@ def send_email(subject: str, text: str) -> None:
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # health check
+        if self.path.startswith("/twiml"):
+            self.send_twiml()
+            return
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"ok")
 
+    def send_twiml(self):
+        """Twilio voice URL: press 1 to accept Google Voice's forwarding
+        prompt, then hand the call to the ElevenLabs receptionist."""
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?><Response>'
+            f'<Play digits="{ACCEPT_DIGITS}"/>'
+            f'<Redirect method="POST">{ELEVENLABS_INBOUND}</Redirect>'
+            "</Response>"
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Length", str(len(xml)))
+        self.end_headers()
+        self.wfile.write(xml)
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path.startswith("/twiml"):
+            self.send_twiml()
+            return
         if not valid_signature(self.headers.get("ElevenLabs-Signature", ""), body):
             self.send_response(401)
             self.end_headers()
