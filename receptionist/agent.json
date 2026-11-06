@@ -1,0 +1,7 @@
+{
+  "agent_id": "agent_6301m6rzrx1ce54vptctfnha3gsz",
+  "name": "Local Flyer Ads CT Receptionist",
+  "language": "en",
+  "first_message": "Thank you for calling Local Flyer Ads CT, Connecticut's local screen and social advertising network. How can I help you today?",
+  "prompt_file": "prompt.md"
+}
