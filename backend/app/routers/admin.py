@@ -196,7 +196,7 @@ async def _receive_upload(request: Request) -> tuple[Path, str, str | None]:
 @router.post("/media", response_model=schemas.MediaOut, status_code=201)
 async def upload_media(request: Request, db: Session = Depends(get_db)):
     """Upload an image (JPG, PNG, HEIC) or video (MP4, MOV). The original is
-    kept; screens get a 1080x1920 formatted copy with a white border."""
+    kept; screens get a 1200x1920 edge to edge formatted copy."""
     incoming, filename, title = await _receive_upload(request)
     try:
         stored = await run_in_threadpool(process_upload, incoming, filename)
@@ -283,7 +283,7 @@ def update_text_slide(media_id: uuid.UUID, body: schemas.TextSlideIn, db: Sessio
 @router.post("/text-slides/preview", response_class=Response,
              responses={200: {"content": {"image/jpeg": {}}}})
 def preview_text_slide(body: schemas.TextSlideIn):
-    """The exact 1080x1920 image a text slide will be, without saving it."""
+    """The exact 1200x1920 image a text slide will be, without saving it."""
     with tempfile.TemporaryDirectory() as tmp:
         target = Path(tmp) / "preview.jpg"
         render_text(body.text, body.text_color, body.background_color, target)

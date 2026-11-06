@@ -20,7 +20,7 @@ export interface Media {
   text_color: string | null
   background_color: string | null
   fit_mode: FitMode
-  /** Size of the original upload (width/height are the formatted 1080×1920). */
+  /** Size of the original upload (width/height are the formatted 1200×1920). */
   source_width: number | null
   source_height: number | null
   /** How the original was formatted, e.g. "Landscape 1600×900: shown whole over a blurred background". */
@@ -521,7 +521,7 @@ export const api = {
     request<QrLink>('PATCH', `/api/admin/qr-links/${id}`, body),
 }
 
-/** The exact 1080×1920 picture a text slide will be, as an object URL
+/** The exact 1200×1920 picture a text slide will be, as an object URL
  * (revoke it when done). */
 async function previewTextSlide(body: TextSlideInput, signal?: AbortSignal): Promise<string> {
   const token = getToken()

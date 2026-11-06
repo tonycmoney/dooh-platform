@@ -82,7 +82,7 @@ def test_order_with_file_waits_for_approval_then_plays(client, admin, fake_stora
     assert o["business_name"] == "Mercato Italian Kitchen" and o["email"] == "maria@example.com"
     assert o["plan"] == "tablet-1" and o["city"] == "Stamford" and o["file_status"] == "ready"
     media = o["media"]
-    assert media["status"] == "pending" and (media["width"], media["height"]) == (1080, 1920)
+    assert media["status"] == "pending" and (media["width"], media["height"]) == (1200, 1920)
     assert media["title"].startswith("Mercato Italian Kitchen")
     assert admin.get("/api/admin/stats").json()["orders_to_review"] == 1
 

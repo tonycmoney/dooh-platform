@@ -165,7 +165,8 @@ def build_manifest(db: Session, loop_id, fallback_url: str | None = None) -> sch
         else:
             if media.kind is MediaKind.text:
                 entry.kind = MediaKind.image  # rendered slide: any player shows it as a picture
-            entry.framed = media.format_version is not None
+            # Only the old bordered format (version 1) is letterboxed in white.
+            entry.framed = media.format_version == 1
             entry.url = file_url(media.filename)
             entry.sha256 = media.sha256
             entry.size_bytes = media.size_bytes

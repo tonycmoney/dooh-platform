@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, type FitMode, type Media } from './api'
-import { BORDER_PX, CANVAS_WIDTH, PORTRAIT, RECOMMENDED_SIZE, isLandscape, needsBars } from './portrait'
+import { CANVAS_WIDTH, PORTRAIT, RECOMMENDED_SIZE, isLandscape, needsBars } from './portrait'
 
 export function TextSlidePreview({
   text,
@@ -34,7 +34,7 @@ export function TextSlidePreview({
   )
 }
 
-/** A 9:16 frame that shows an image or video the way the tablet will: filling
+/** A 10:16 frame that shows an image or video the way the tablet will: filling
  * the frame if it's portrait, or centered over blurred bars if it isn't. */
 function PortraitFrame({ src, width, children }: { src: string | null; width: number; children: ReactNode }) {
   return (
@@ -147,8 +147,7 @@ export function FormatPreview({ media, onChanged, onClose }: {
         </div>
         <div className="format-preview-info">
           <p>
-            <strong>As screens show it:</strong> {CANVAS_WIDTH} × {CANVAS_WIDTH / PORTRAIT} px with a {BORDER_PX} px
-            white border.
+            <strong>As screens show it:</strong> {CANVAS_WIDTH} × {CANVAS_WIDTH / PORTRAIT} px, filling the whole screen.
           </p>
           {media.format_note && <p className="muted">{media.format_note}</p>}
           {media.kind !== 'text' && (
@@ -181,7 +180,7 @@ interface PreviewItem {
   duration_seconds: number
 }
 
-/** Plays a loop in a 9:16 frame, item by item, with each item's duration. */
+/** Plays a loop in a 10:16 frame, item by item, with each item's duration. */
 export function LoopPreview({ items, width = 220 }: { items: PreviewItem[]; width?: number }) {
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(true)

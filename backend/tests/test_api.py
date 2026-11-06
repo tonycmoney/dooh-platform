@@ -76,7 +76,7 @@ def test_media_loop_manifest_and_assignment(client, admin):
     m1 = client.get("/api/player/manifest", headers=auth(token)).json()
     # Text slides are rendered to framed pictures, so screens get two images.
     assert [i["kind"] for i in m1["items"]] == ["image", "image"]
-    assert all(i["framed"] and (i["width"], i["height"]) == (1080, 1920) for i in m1["items"])
+    assert all(not i["framed"] and (i["width"], i["height"]) == (1200, 1920) for i in m1["items"])
     assert m1["items"][0]["url"].startswith("/files/") and m1["items"][0]["sha256"]
     assert m1["items"][1]["url"] == slide["url"] and m1["items"][1]["text"] is None
     formatted = client.get(m1["items"][0]["url"])

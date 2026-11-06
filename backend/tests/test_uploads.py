@@ -1,5 +1,5 @@
 """Uploads and the screen format: every image, video and text slide becomes a
-1080x1920 file with a white border, Fit (whole, over a blurred background) or
+1200x1920 edge to edge file, Fit (whole, over a blurred background) or
 Fill (cropped). Originals from a Mac Photos library (HEIC, MOV incl. 10-bit
 HEVC HDR) are kept untouched; errors are clear."""
 
@@ -127,10 +127,10 @@ def _close(px, expected, tolerance=24) -> bool:
 
 
 def assert_framed(img: Image.Image) -> None:
-    """1080x1920 with a white border on all four edges (sampled 6 px in)."""
-    assert img.size == (1080, 1920)
-    for x, y in [(6, 6), (540, 6), (1073, 6), (6, 960), (1073, 960), (6, 1913), (540, 1913), (1073, 1913)]:
-        assert _is_white(img.getpixel((x, y))), (x, y, img.getpixel((x, y)))
+    """1200x1920, filling the screen: no white border on any edge."""
+    assert img.size == (1200, 1920)
+    edge = [(2, 2), (600, 2), (1197, 2), (2, 960), (1197, 960), (2, 1917), (600, 1917), (1197, 1917)]
+    assert not all(_is_white(img.getpixel(p)) for p in edge), "white border on every edge"
 
 
 def _original(body: dict) -> bytes:
@@ -152,7 +152,7 @@ def test_heic_is_formatted_and_original_kept(admin, samples, tmp_path):
     assert res.status_code == 201, res.text
     body = res.json()
     assert body["kind"] == "image" and body["url"].endswith(".jpg")
-    assert (body["width"], body["height"]) == (1080, 1920)
+    assert (body["width"], body["height"]) == (1200, 1920)
     assert (body["source_width"], body["source_height"]) == (640, 480)
     assert body["fit_mode"] == "fit" and "blurred background" in body["format_note"]
     assert body["thumbnail_url"]
@@ -237,7 +237,7 @@ def test_hevc_hdr_mov_becomes_framed_h264(admin, samples, tmp_path):
     path = _formatted(body)
     stream = _video(path)
     assert stream["codec_name"] == "h264" and stream["pix_fmt"] == "yuv420p"
-    assert (stream["width"], stream["height"]) == (1080, 1920)
+    assert (stream["width"], stream["height"]) == (1200, 1920)
     assert stream.get("color_transfer") not in ("arib-std-b67", "smpte2084")
     audio = next(s for s in _probe(path)["streams"] if s["codec_type"] == "audio")
     assert audio["sample_rate"] == "48000"
@@ -254,10 +254,10 @@ def test_vertical_video_fills_inside_the_border(admin, samples, tmp_path):
     assert sum(frame.getpixel((540, 20))) > 60 and sum(frame.getpixel((540, 1899))) > 60
 
 
-def test_odd_sized_video_becomes_1080x1920(admin, samples):
+def test_odd_sized_video_becomes_1200x1920(admin, samples):
     body = raw_upload(admin, "ElevenLabs_video.mp4", samples["odd_mp4"], "video/mp4").json()
     path = _formatted(body)
-    assert (_video(path)["width"], _video(path)["height"]) == (1080, 1920)
+    assert (_video(path)["width"], _video(path)["height"]) == (1200, 1920)
     audio = next(s for s in _probe(path)["streams"] if s["codec_type"] == "audio")
     assert audio["sample_rate"] == "48000"
 
@@ -271,7 +271,7 @@ def test_portrait_4k_60fps_is_capped_at_30fps(admin, tmp_path):
     )
     body = raw_upload(admin, "IMG_0003.MOV", src.read_bytes(), "video/quicktime").json()
     stream = _video(_formatted(body))
-    assert (stream["width"], stream["height"]) == (1080, 1920)
+    assert (stream["width"], stream["height"]) == (1200, 1920)
     num, den = stream["avg_frame_rate"].split("/")
     assert abs(int(num) / int(den) - 30) < 0.5
 
@@ -309,7 +309,7 @@ def test_text_slide_is_rendered_framed_and_auto_sized(admin, tmp_path):
         "title": "x", "text": "Hello", "text_color": "#FFFFFF", "background_color": "#000000"})
     assert preview.status_code == 200 and preview.headers["content-type"] == "image/jpeg"
     with Image.open(io.BytesIO(preview.content)) as p:
-        assert p.size == (1080, 1920)
+        assert p.size == (1200, 1920)
 
     assert admin.patch(f"/api/admin/media/{short['id']}", json={"fit_mode": "fill"}).status_code == 400
 
@@ -345,7 +345,7 @@ def test_reformat_command_upgrades_old_items(admin, samples, monkeypatch, capsys
     assert reformat.main() == 0
     with SessionLocal() as db:
         for media in db.query(Media).all():
-            assert media.format_version is not None and (media.width, media.height) == (1080, 1920)
+            assert media.format_version is not None and (media.width, media.height) == (1200, 1920)
             assert (media_dir() / media.filename).is_file()
     assert not legacy.exists()  # old stored file replaced by the formatted one
     assert "2 of 2 items to format" in capsys.readouterr().out

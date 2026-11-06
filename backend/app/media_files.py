@@ -1,5 +1,5 @@
 """Receiving uploads, keeping the original, and producing the formatted file
-screens play (see formatting.py for the 1080 x 1920 framed format).
+screens play (see formatting.py for the 1200 x 1920 screen format).
 
 In: JPG, PNG, HEIC/HEIF images and MP4, MOV videos (HEVC, HDR, 4K all fine).
 The upload is kept untouched in ORIGINALS_DIR, which is never served, so the

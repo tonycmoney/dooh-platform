@@ -111,7 +111,7 @@ class Media(Base):
         Enum(ApprovalStatus, name="approval_status"), default=ApprovalStatus.pending
     )
 
-    # The formatted file screens play: 1080x1920 with a white border (images,
+    # The formatted file screens play: 1200x1920 edge to edge (images,
     # videos and rendered text slides). width/height describe this file.
     filename: Mapped[str | None] = mapped_column(String(300))
     original_name: Mapped[str | None] = mapped_column(String(300))

@@ -89,7 +89,7 @@ class ManifestItem(BaseModel):
     media_duration_seconds: float | None = None
     width: int | None = None
     height: int | None = None
-    # Already 1080x1920 with its own white border: letterbox it in white,
+    # Old format (1080x1920 with its own white border): letterbox it in white,
     # not over a blur, on screens of a different shape.
     framed: bool = False
     text: TextSlideProps | None = None

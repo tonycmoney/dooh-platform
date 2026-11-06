@@ -82,14 +82,14 @@ export function TextSlideEditor({ initial, onSaved, onClose }: {
     <Modal title={initial ? 'Edit text slide' : 'New text slide'} onClose={onClose} wide>
       <form className="slide-editor" onSubmit={submit}>
         <div className="slide-preview-col">
-          <div className="frame" style={{ width: 234, height: 416 }}>
+          <div className="frame" style={{ width: 260, height: 416 }}>
             {preview && form.text.trim() ? (
               <img className="frame-content" src={preview} alt="Slide preview" />
             ) : (
               <span className="frame-label">Type some text</span>
             )}
           </div>
-          <span className="muted small-text">Exactly as screens show it: 1080 × 1920, white border</span>
+          <span className="muted small-text">Exactly as screens show it: 1200 × 1920, full screen</span>
         </div>
         <div className="slide-fields">
         <label>
@@ -244,9 +244,9 @@ export default function MediaPage({ onChanged }: { onChanged: () => void }) {
         onClick={() => fileInput.current?.click()}
       >
         Drop photos and videos here, or click to choose files
-        <strong className="recommended">Recommended ad size: {RECOMMENDED_SIZE} px (portrait, 9:16)</strong>
+        <strong className="recommended">Recommended ad size: {RECOMMENDED_SIZE} px (portrait, 10:16)</strong>
         <small>
-          JPG, PNG, HEIC, MP4 or MOV · each upload is formatted to {RECOMMENDED_SIZE} with a thin white border ·
+          JPG, PNG, HEIC, MP4 or MOV · each upload is formatted to {RECOMMENDED_SIZE} to fill the screen ·
           other shapes are shown whole over a blurred background · the original is kept
         </small>
       </div>

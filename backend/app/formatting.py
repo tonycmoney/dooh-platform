@@ -1,7 +1,8 @@
 """Turns any image, video or text slide into the screen format: exactly
-1080 x 1920 with a 12 px white border on all four edges.
+1200 x 1920 (10:16, the shape of the network's portrait tablets), edge to
+edge with no border, so an ad fills the whole screen.
 
-Inside the border (1056 x 1896):
+On the canvas:
 - "fit" (default): content that's already the screen's shape (within 2%) fills
   it; any other shape is shown whole, never stretched or cut, over a blurred,
   darkened copy of itself.
@@ -23,13 +24,15 @@ from .models import FitMode
 log = logging.getLogger("dooh.formatting")
 
 # Bump to have `python -m app.reformat` redo every item after a format change.
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2  # 1: 1080x1920 inside a 12 px white border
 
-CANVAS_W, CANVAS_H = 1080, 1920
-BORDER = 12
+CANVAS_W, CANVAS_H = 1200, 1920
+BORDER = 0
 BORDER_COLOR = (255, 255, 255)
 INNER_W, INNER_H = CANVAS_W - 2 * BORDER, CANVAS_H - 2 * BORDER
-FILL_TOLERANCE = 0.02  # this close to the screen's shape fills instead of fitting
+# This close to the screen's shape fills instead of fitting. 12% lets standard
+# 9:16 ads fill the 10:16 screen, trimming about 5% off the top and bottom.
+FILL_TOLERANCE = 0.12
 
 # Background behind fitted content: a heavily blurred, darkened copy.
 BLUR_W, BLUR_H = INNER_W // 4, INNER_H // 4
@@ -64,6 +67,8 @@ def describe(width: int, height: int, mode: FitMode) -> str:
 
 
 def _framed(inner: Image.Image) -> Image.Image:
+    if not BORDER:
+        return inner
     canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), BORDER_COLOR)
     canvas.paste(inner, (BORDER, BORDER))
     return canvas
@@ -92,7 +97,7 @@ def open_upright(source: Path) -> Image.Image:
 
 
 def format_image(source: Path, target: Path, mode: FitMode) -> tuple[int, int]:
-    """Writes the framed 1080x1920 JPEG. Returns the upright source size."""
+    """Writes the 1200x1920 JPEG. Returns the upright source size."""
     img = open_upright(source)
     size = img.size
     if covers(*size, mode):
@@ -204,7 +209,8 @@ def video_filter(width: int, height: int, mode: FitMode, *, hdr: bool, fps: floa
         pre.append(f"fps={MAX_VIDEO_FPS}")  # budget tablet decoders top out around 30 fps at 1080p
     pre.append("setsar=1")
     head = "[0:v]" + ",".join(pre)
-    frame = f"pad={CANVAS_W}:{CANVAS_H}:{BORDER}:{BORDER}:color=white,format=yuv420p[v]"
+    frame = (f"pad={CANVAS_W}:{CANVAS_H}:{BORDER}:{BORDER}:color=white,format=yuv420p[v]" if BORDER
+             else "format=yuv420p[v]")
     if covers(width, height, mode):
         return (f"{head},scale={INNER_W}:{INNER_H}:force_original_aspect_ratio=increase,"
                 f"crop={INNER_W}:{INNER_H},{frame}")
@@ -220,7 +226,7 @@ def video_filter(width: int, height: int, mode: FitMode, *, hdr: bool, fps: floa
 
 def format_video(source: Path, target: Path, width: int, height: int, mode: FitMode,
                  *, hdr: bool, fps: float) -> subprocess.CompletedProcess | None:
-    """Encodes the framed 1080x1920 H.264 MP4 (AAC 48 kHz audio if any).
+    """Encodes the 1200x1920 H.264 MP4 (AAC 48 kHz audio if any).
     Returns the ffmpeg result, or None on timeout."""
     cmd = [
         "ffmpeg", "-y", "-v", "error", "-i", str(source),
