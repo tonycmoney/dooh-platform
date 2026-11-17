@@ -1,10 +1,84 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { dollars, hostApi, monthLabel, timeAgo, type HostPortal as Portal } from '../api'
+import { dollars, hostApi, monthLabel, timeAgo, type HostAgreement, type HostPortal as Portal } from '../api'
 
 function hours(seconds: number) {
   const h = seconds / 3600
   return h >= 10 ? `${Math.round(h)} h` : h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(seconds / 60)} min`
+}
+
+const PHONE = '(475) 258 8963'
+
+function AgreementCard({ agreement, token, onSigned }: {
+  agreement: HostAgreement
+  token: string
+  onSigned: () => void
+}) {
+  const [name, setName] = useState('')
+  const [agree, setAgree] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [open, setOpen] = useState(!agreement.signed)
+  useEffect(() => { if (agreement.signed) setOpen(false) }, [agreement.signed])
+
+  async function sign(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await hostApi.signAgreement(token, name.trim())
+      onSigned()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className={`hp-card hp-agreement${agreement.signed ? ' signed' : ''}`}>
+      <div className="hp-label">Step 1 · Host agreement</div>
+      {agreement.signed ? (
+        <p>
+          <b>✓ Signed</b> by {agreement.signed_name} on {new Date(agreement.signed_at!).toLocaleDateString()}. A copy
+          was emailed to you.{' '}
+          <button className="link" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'View agreement'}</button>
+        </p>
+      ) : (
+        <p>Please read and sign your screen host agreement. Then you can set up payouts.</p>
+      )}
+      {open && (
+        <div className="hp-agreement-text">
+          <h2>{agreement.title}</h2>
+          <p className="muted">{agreement.company_line}</p>
+          <dl className="hp-dl">
+            {agreement.details.map((d) => (
+              <Fragment key={d.label}><dt>{d.label}</dt><dd>{d.value}</dd></Fragment>
+            ))}
+          </dl>
+          {agreement.sections.map((s) => (
+            <div key={s.heading}><h3>{s.heading}</h3><p>{s.body}</p></div>
+          ))}
+        </div>
+      )}
+      {!agreement.signed && (
+        <form className="hp-sign" onSubmit={sign}>
+          <label>
+            Type your full name to sign
+            <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
+          </label>
+          <label className="hp-check">
+            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+            I have read and agree to this host agreement.
+          </label>
+          <button className="primary" disabled={busy || !agree || !name.trim()}>
+            {busy ? 'Signing…' : 'I Agree, sign'}
+          </button>
+          {error && <p className="error">{error}</p>}
+        </form>
+      )}
+    </section>
+  )
 }
 
 function PayoutCard({ data, token }: { data: Portal; token: string }) {
@@ -20,6 +94,7 @@ function PayoutCard({ data, token }: { data: Portal; token: string }) {
       setBusy(false)
     }
   }
+  const unsigned = data.agreement != null && !data.agreement.signed
   if (data.payout_status === 'ready') {
     return (
       <div className="hp-card hp-payout ready">
@@ -30,14 +105,14 @@ function PayoutCard({ data, token }: { data: Portal; token: string }) {
   }
   return (
     <div className="hp-card hp-payout">
-      <div className="hp-label">Payouts</div>
+      <div className="hp-label">{data.agreement ? 'Step 2 · Payouts' : 'Payouts'}</div>
       <p>
-        {data.payout_status === 'pending'
+        {unsigned ? 'Sign the host agreement above first, then connect your bank here.' : data.payout_status === 'pending'
           ? 'Your payout setup is almost done. Finish it on Stripe so we can send your earnings.'
           : 'Add your bank account through Stripe so we can send your earnings each month. It takes about 5 minutes.'}
       </p>
       {data.payouts_available ? (
-        <button className="primary" onClick={setup} disabled={busy}>
+        <button className="primary" onClick={setup} disabled={busy || unsigned}>
           {busy ? 'Opening Stripe…' : data.payout_status === 'pending' ? 'Finish payout setup' : 'Set up payouts'}
         </button>
       ) : (
@@ -73,7 +148,7 @@ export default function HostPortal() {
   if (error) {
     return (
       <div className="hp">
-        <div className="hp-card hp-empty"><h1>Link not working</h1><p>{error}</p><p>Call Local Flyer Ads at (203) 278-6434.</p></div>
+        <div className="hp-card hp-empty"><h1>Link not working</h1><p>{error}</p><p>Call Local Flyer Ads at {PHONE}.</p></div>
       </div>
     )
   }
@@ -100,6 +175,10 @@ export default function HostPortal() {
           {data.history.map((h) => <option key={h.month} value={h.month}>{monthLabel(h.month)}</option>)}
         </select>
       </header>
+
+      {data.agreement && (
+        <AgreementCard agreement={data.agreement} token={token} onSigned={load} />
+      )}
 
       {setupResult === 'done' && data.payout_status !== 'ready' && (
         <p className="notice">Thanks! Stripe is reviewing your details. This page updates once payouts are ready.</p>
@@ -176,7 +255,7 @@ export default function HostPortal() {
       <p className="muted hp-foot">
         How this works: each month, every advertiser's payment is split across the screens that played their ad, by how
         long it played. You earn {data.share_percent}% of what your screens bring in. Numbers update through the month;
-        times are {data.timezone.replace('_', ' ')}. Questions? Call (203) 278-6434.
+        times are {data.timezone.replace('_', ' ')}. Questions? Call {PHONE}.
       </p>
     </div>
   )

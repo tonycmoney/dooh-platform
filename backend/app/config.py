@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     alert_email_to: str = ""  # comma-separated
     alert_email_from: str = "DOOH Alerts <onboarding@resend.dev>"
+    # Emails to hosts (signed agreements). Must be on a domain verified in Resend.
+    host_email_from: str = ""  # defaults to alert_email_from
+    host_email_reply_to: str = ""  # where hosts' replies go
     public_url: str = ""  # dashboard address, for links in emails
 
     # Alerts and the daily report (the monitor runs when monitoring is on).

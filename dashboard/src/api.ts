@@ -247,9 +247,12 @@ export interface Host {
   business_name: string
   email: string | null
   phone: string | null
+  address: string | null
   share_percent: number
   link: string
   payout_status: PayoutStatus
+  agreement_signed_name: string | null
+  agreement_signed_at: string | null
   device_ids: string[]
   this_month: HostMonth
   last_month: HostMonth
@@ -261,10 +264,22 @@ export interface HostInput {
   business_name: string
   email?: string | null
   phone?: string | null
+  address?: string | null
   share_percent?: number
 }
 
+export interface HostAgreement {
+  signed: boolean
+  signed_name: string | null
+  signed_at: string | null
+  title: string
+  company_line: string
+  details: { label: string; value: string }[]
+  sections: { heading: string; body: string }[]
+}
+
 export interface HostPortal {
+  agreement: HostAgreement | null
   business_name: string
   name: string
   share_percent: number
@@ -287,8 +302,10 @@ export function monthLabel(month: string) {
 
 /** The host's private page (no admin login): plain fetches, so a bad link
  * never signs the owner out of the dashboard. */
-async function hostRequest<T>(method: string, path: string): Promise<T> {
-  const res = await fetch(path, { method })
+async function hostRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, body === undefined ? { method } : {
+    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
   const data = await res.json().catch(() => null)
   if (!res.ok) throw new ApiError(res.status, errorMessage(data, `${res.status} ${res.statusText}`))
   return data as T
@@ -299,6 +316,8 @@ export const hostApi = {
     hostRequest<HostPortal>('GET', `/api/host/${encodeURIComponent(token)}${month ? `?month=${month}` : ''}`),
   payoutSetup: (token: string) =>
     hostRequest<{ url: string }>('POST', `/api/host/${encodeURIComponent(token)}/payout-setup`),
+  signAgreement: (token: string, name: string) =>
+    hostRequest<HostAgreement>('POST', `/api/host/${encodeURIComponent(token)}/agreement`, { name, agree: true }),
 }
 
 const TOKEN_KEY = 'dooh-admin-token'

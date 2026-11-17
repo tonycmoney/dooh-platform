@@ -8,14 +8,14 @@ Stripe payouts."""
 import logging
 import secrets
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import host_revenue, schemas, stripe_api
+from .. import host_agreement, host_revenue, notify, schemas, stripe_api
 from ..config import settings
 from ..db import get_db
 from ..models import Device, Host, HostPayout
@@ -60,7 +60,9 @@ def _host_out(db: Session, host: Host, revenue_cache: dict) -> schemas.HostOut:
 
     return schemas.HostOut(
         id=host.id, name=host.name, business_name=host.business_name, email=host.email, phone=host.phone,
-        share_percent=host.share_percent, link=_host_link(host), payout_status=_payout_status(host),
+        address=host.address, share_percent=host.share_percent, link=_host_link(host),
+        payout_status=_payout_status(host), agreement_signed_name=host.agreement_signed_name,
+        agreement_signed_at=host.agreement_signed_at,
         device_ids=[d.id for d in host.devices], this_month=month(this), last_month=month(last),
         created_at=host.created_at,
     )
@@ -106,6 +108,7 @@ def list_hosts(db: Session = Depends(get_db)):
 def create_host(body: schemas.HostIn, db: Session = Depends(get_db)):
     host = Host(
         name=body.name, business_name=body.business_name, email=body.email or None, phone=body.phone or None,
+        address=body.address or None,
         share_percent=settings.host_default_share_percent if body.share_percent is None else body.share_percent,
         access_token=_new_token(),
     )
@@ -120,7 +123,7 @@ def update_host(host_id: uuid.UUID, body: schemas.HostUpdate, db: Session = Depe
     for key, value in body.model_dump(exclude_unset=True).items():
         if key in ("name", "business_name", "share_percent") and value is None:
             continue
-        setattr(host, key, (value or None) if key in ("email", "phone") else value)
+        setattr(host, key, (value or None) if key in ("email", "phone", "address") else value)
     _commit_host(db)
     return _host_out(db, host, {})
 
@@ -227,6 +230,7 @@ def build_portal(db: Session, host: Host, month: date | None = None) -> schemas.
     payouts = db.scalars(select(HostPayout).where(HostPayout.host_id == host.id)
                          .order_by(HostPayout.month.desc())).all()
     return schemas.HostPortalOut(
+        agreement=agreement_out(host),
         business_name=host.business_name, name=host.name, share_percent=host.share_percent,
         timezone=settings.timezone, payout_status=_payout_status(host),
         payouts_available=stripe_api.configured(), month=current, history=history,
@@ -234,10 +238,68 @@ def build_portal(db: Session, host: Host, month: date | None = None) -> schemas.
     )
 
 
+def agreement_out(host: Host) -> schemas.AgreementOut:
+    return schemas.AgreementOut(
+        signed=host.agreement_signed_at is not None,
+        signed_name=host.agreement_signed_name,
+        signed_at=host.agreement_signed_at,
+        title=host_agreement.TITLE,
+        company_line=host_agreement.COMPANY_LINE,
+        details=[schemas.AgreementDetailOut(label=k, value=v) for k, v in host_agreement.details(host)],
+        sections=[schemas.AgreementSectionOut(heading=h, body=b) for h, b in host_agreement.sections(host)],
+    )
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+def _email_signed_copy(host: Host) -> None:
+    text = (host.agreement_text or "") + host_agreement.signature_block(host)
+    subject = f"Signed: {host_agreement.TITLE}, {host.business_name}"
+    # The owner's copy, then the host's copy.
+    notify.send_email(subject, f"{host.name} signed the host agreement.\n\n{text}")
+    if host.email:
+        notify.send_email(
+            f"Your signed {host_agreement.TITLE} with Local Flyer Ads",
+            f"Hi {host.name},\n\nThanks for hosting a Local Flyer Ads screen. Here is a copy of the agreement "
+            f"you signed. Your host page, where you see your earnings and set up payouts, is here:\n"
+            f"{_host_link(host)}\n\nQuestions? Call (475) 258 8963.\n\n{text}",
+            to=[host.email], reply_to=settings.host_email_reply_to or None,
+            sender=settings.host_email_from or None,
+        )
+
+
+@public.post("/{token}/agreement", response_model=schemas.AgreementOut)
+def sign_agreement(token: str, body: schemas.AgreementSignIn, request: Request, db: Session = Depends(get_db)):
+    """The host signs the agreement by typing their name and tapping I Agree.
+    Signing twice keeps the first signature."""
+    host = _host_by_token(db, token)
+    if host.agreement_signed_at is not None:
+        return agreement_out(host)
+    if not body.agree:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Check the box to agree before signing.")
+    host.agreement_text = host_agreement.as_text(host)
+    host.agreement_signed_name = body.name
+    host.agreement_signed_at = datetime.now(timezone.utc)
+    host.agreement_signed_ip = _client_ip(request)
+    host.agreement_version = host_agreement.VERSION
+    db.commit()
+    log.info("Host %s signed the agreement", host.id)
+    try:
+        _email_signed_copy(host)
+    except Exception:  # the signature is saved; a failed email shouldn't undo it
+        log.exception("Couldn't email the signed agreement for host %s", host.id)
+    return agreement_out(host)
+
+
 @public.post("/{token}/payout-setup", response_model=schemas.OnboardingLinkOut)
 def payout_setup(token: str, db: Session = Depends(get_db)):
-    """Starts (or resumes) Stripe's hosted payout onboarding for the host."""
+    """Starts (or resumes) Stripe's hosted payout onboarding for the host,
+    once they've signed the host agreement."""
     host = _host_by_token(db, token)
+    if host.agreement_signed_at is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Please sign the host agreement first.")
     page = _host_link(host)
     return start_payout_setup(db, host, refresh_url=f"{page}?setup=retry", return_url=f"{page}?setup=done")
 

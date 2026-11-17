@@ -258,6 +258,16 @@ button.card-frame { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .hp-dl dt { color: var(--muted); }
 .hp-dl dd { margin: 0; font-weight: 600; text-align: right; }
 .hp-payout p { margin: 6px 0 12px; }
+.hp-agreement { margin-bottom: 16px; border-color: color-mix(in srgb, var(--warn, #d97706) 45%, var(--border)); }
+.hp-agreement.signed { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.hp-agreement-text { max-height: 55vh; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+.hp-agreement-text h2 { margin: 0 0 4px; font-size: 1.1rem; }
+.hp-agreement-text h3 { margin: 12px 0 4px; font-size: 0.95rem; }
+.hp-agreement-text p { margin: 0; line-height: 1.45; }
+.hp-sign { display: grid; gap: 10px; margin-top: 10px; }
+.hp-sign label { display: grid; gap: 4px; }
+.hp-sign input[type=text], .hp-sign input:not([type]) { font-size: 1.05rem; padding: 10px; }
+.hp-check { display: flex !important; align-items: flex-start; gap: 8px; }
 .hp-payout.ready { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
 .hp-bar-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
 .hp-bar-label { width: 84px; flex-shrink: 0; color: var(--muted); }

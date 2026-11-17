@@ -423,6 +423,7 @@ class HostIn(BaseModel):
     email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
     share_percent: Percent | None = None
+    address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
 class HostUpdate(BaseModel):
@@ -431,6 +432,7 @@ class HostUpdate(BaseModel):
     email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
     share_percent: Percent | None = None
+    address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
 class HostScreensIn(BaseModel):
@@ -477,16 +479,45 @@ class HostOut(BaseModel):
     business_name: str
     email: str | None
     phone: str | None
+    address: str | None = None
     share_percent: int
     link: str
     payout_status: str  # not_started | pending | ready
+    agreement_signed_name: str | None = None
+    agreement_signed_at: datetime | None = None
     device_ids: list[uuid.UUID]
     this_month: HostMonthOut
     last_month: HostMonthOut
     created_at: datetime
 
 
+class AgreementDetailOut(BaseModel):
+    label: str
+    value: str
+
+
+class AgreementSectionOut(BaseModel):
+    heading: str
+    body: str
+
+
+class AgreementOut(BaseModel):
+    signed: bool
+    signed_name: str | None
+    signed_at: datetime | None
+    title: str
+    company_line: str
+    details: list[AgreementDetailOut]
+    sections: list[AgreementSectionOut]
+
+
+class AgreementSignIn(BaseModel):
+    name: ShortText
+    agree: bool
+
+
 class HostPortalOut(BaseModel):
+    agreement: AgreementOut | None = None
     business_name: str
     name: str
     share_percent: int

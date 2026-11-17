@@ -14,6 +14,7 @@ function HostForm({ host, onSaved, onClose }: { host?: Host; onSaved: (h: Host) 
     business_name: host?.business_name ?? '',
     email: host?.email ?? '',
     phone: host?.phone ?? '',
+    address: host?.address ?? '',
     share_percent: host?.share_percent ?? 20,
   })
   const [error, setError] = useState('')
@@ -41,6 +42,7 @@ function HostForm({ host, onSaved, onClose }: { host?: Host; onSaved: (h: Host) 
         <label>Contact name<input value={form.name} onChange={set('name')} required /></label>
         <label>Email<input type="email" value={form.email ?? ''} onChange={set('email')} /></label>
         <label>Phone<input value={form.phone ?? ''} onChange={set('phone')} /></label>
+        <label>Business address<input value={form.address ?? ''} onChange={set('address')} /></label>
         <label>
           Host share of ad revenue (%)
           <input type="number" min={0} max={100} value={form.share_percent} onChange={set('share_percent')} />
@@ -207,6 +209,13 @@ export default function Hosts() {
                       <b>{h.business_name}</b>
                       <div className="muted">{h.name}{h.email ? ` · ${h.email}` : ''}</div>
                       <div className="muted">{h.share_percent}% share</div>
+                      {h.agreement_signed_at ? (
+                        <div className="status status-approved" title={`Signed by ${h.agreement_signed_name}`}>
+                          ✓ Agreement signed {new Date(h.agreement_signed_at).toLocaleDateString()}
+                        </div>
+                      ) : (
+                        <div className="status status-pending">Agreement not signed</div>
+                      )}
                     </td>
                     <td>
                       {h.device_ids.length ? h.device_ids.map(screenName).join(', ') : <span className="muted">None</span>}

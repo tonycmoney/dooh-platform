@@ -160,6 +160,8 @@ def test_payout_setup_and_monthly_payout(client, admin, fake_stripe):
     pay = lambda m: admin.post(f"/api/admin/hosts/{host['id']}/payouts", json={"month": str(m)})
     assert pay(LAST_MONTH).status_code == 400  # not set up yet
 
+    assert client.post(f"/api/host/{token}/payout-setup").status_code == 409  # agreement not signed
+    sign(client, token)
     assert client.post(f"/api/host/{token}/payout-setup").json()["url"].startswith("https://connect.stripe.com")
     assert client.get(f"/api/host/{token}").json()["payout_status"] == "ready"
 
@@ -174,6 +176,7 @@ def test_payout_setup_and_monthly_payout(client, admin, fake_stripe):
 def test_payout_setup_without_stripe_key_is_a_friendly_error(client, admin, monkeypatch):
     monkeypatch.setattr(settings, "stripe_secret_key", "")
     host = make_host(admin)
+    sign(client, token_of(host))
     res = client.post(f"/api/host/{token_of(host)}/payout-setup")
     assert res.status_code == 503 and client.get(f"/api/host/{token_of(host)}").json()["payouts_available"] is False
 
@@ -189,3 +192,37 @@ def test_assigning_a_screen_moves_it_between_hosts(admin):
 
 def test_host_endpoints_need_admin_login(client):
     assert client.get("/api/admin/hosts").status_code == 401
+
+
+def sign(client, token, name="Joe Smith"):
+    res = client.post(f"/api/host/{token}/agreement", json={"name": name, "agree": True})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_host_signs_agreement_filled_with_their_details(client, admin, monkeypatch):
+    sent = []
+    monkeypatch.setattr("app.notify.send_email", lambda subject, text, **kw: sent.append((subject, text, kw)))
+    _, screen = pair_device(admin)
+    host = make_host(admin, share_percent=10, phone="203 555 0100", address="12 Main St, New Haven, CT")
+    admin.put(f"/api/admin/hosts/{host['id']}/screens", json={"device_ids": [screen]})
+    token = token_of(host)
+
+    agreement = client.get(f"/api/host/{token}").json()["agreement"]
+    assert agreement["signed"] is False
+    details = {d["label"]: d["value"] for d in agreement["details"]}
+    assert details["Host business name"] == "Joe's Barbershop"
+    assert details["Business address"] == "12 Main St, New Haven, CT"
+    assert any("10% of the ad revenue" in s["body"] for s in agreement["sections"])
+
+    refused = client.post(f"/api/host/{token}/agreement", json={"name": "Joe Smith", "agree": False})
+    assert refused.status_code == 400
+    assert sign(client, token)["signed"] is True
+    assert sign(client, token, name="Someone Else")["signed_name"] == "Joe Smith"  # first signature kept
+
+    listed = admin.get("/api/admin/hosts").json()[0]
+    assert listed["agreement_signed_name"] == "Joe Smith" and listed["agreement_signed_at"]
+    assert listed["address"] == "12 Main St, New Haven, CT"
+    # Owner's copy, then the host's copy, each with the signed text.
+    assert len(sent) == 2 and sent[1][2]["to"] == ["joe@example.com"]
+    assert "10% of the ad revenue" in sent[0][1] and "Host: Joe Smith" in sent[0][1]

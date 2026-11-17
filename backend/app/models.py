@@ -347,6 +347,14 @@ class Host(Base):
     access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     stripe_account_id: Mapped[str | None] = mapped_column(String(255))
     payouts_enabled: Mapped[bool] = mapped_column(default=False)
+    address: Mapped[str | None] = mapped_column(String(300))
+    # The host agreement, signed on the host's private page by typing a name.
+    agreement_signed_name: Mapped[str | None] = mapped_column(String(200))
+    agreement_signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    agreement_signed_ip: Mapped[str | None] = mapped_column(String(64))
+    agreement_version: Mapped[str | None] = mapped_column(String(20))
+    # The exact text the host agreed to, with their details filled in.
+    agreement_text: Mapped[str | None] = mapped_column(Text)
     devices: Mapped[list["Device"]] = relationship(back_populates="host")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
