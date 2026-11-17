@@ -93,7 +93,7 @@ def register(body: HostRegisterIn, response: Response, db: Session = Depends(get
         response.status_code = status.HTTP_200_OK
         return _account(db, host)
     host = Host(email=body.email, name=body.name, business_name=body.business_name, phone=body.phone or None,
-                share_percent=settings.host_default_share_percent, access_token=_new_token())
+                monthly_fee=settings.host_monthly_fee, share_percent=0, access_token=_new_token())
     db.add(host)
     try:
         db.commit()

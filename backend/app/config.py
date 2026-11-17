@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # Needed only for host payouts through Stripe Connect.
     stripe_secret_key: str = ""
     # Share of ad revenue a new host earns, in percent.
-    host_default_share_percent: int = 20
+    host_monthly_fee: int = 1500  # cents per screen per month
 
     # Trillboards programmatic fill: screens with no paid ads show
     # Trillboards ads instead. Partner API key (trb_partner_...); empty = off.

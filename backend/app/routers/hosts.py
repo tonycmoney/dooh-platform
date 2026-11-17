@@ -42,7 +42,7 @@ def _payout_status(host: Host) -> str:
 
 def _month_out(m: host_revenue.HostMonth) -> schemas.HostMonthOut:
     return schemas.HostMonthOut(
-        month=m.month, share_percent=m.share_percent, revenue=m.revenue, earnings=m.earnings,
+        month=m.month, monthly_fee=m.monthly_fee, revenue=m.revenue, earnings=m.earnings,
         screens=[schemas.HostScreenMonthOut(**vars(s)) for s in m.screens],
         payout=schemas.PayoutOut.model_validate(m.payout) if m.payout else None,
     )
@@ -60,7 +60,7 @@ def _host_out(db: Session, host: Host, revenue_cache: dict) -> schemas.HostOut:
 
     return schemas.HostOut(
         id=host.id, name=host.name, business_name=host.business_name, email=host.email, phone=host.phone,
-        address=host.address, share_percent=host.share_percent, link=_host_link(host),
+        address=host.address, monthly_fee=host.monthly_fee, link=_host_link(host),
         payout_status=_payout_status(host), agreement_signed_name=host.agreement_signed_name,
         agreement_signed_at=host.agreement_signed_at,
         device_ids=[d.id for d in host.devices], this_month=month(this), last_month=month(last),
@@ -109,7 +109,7 @@ def create_host(body: schemas.HostIn, db: Session = Depends(get_db)):
     host = Host(
         name=body.name, business_name=body.business_name, email=body.email or None, phone=body.phone or None,
         address=body.address or None,
-        share_percent=settings.host_default_share_percent if body.share_percent is None else body.share_percent,
+        monthly_fee=settings.host_monthly_fee if body.monthly_fee is None else body.monthly_fee, share_percent=0,
         access_token=_new_token(),
     )
     db.add(host)
@@ -121,7 +121,7 @@ def create_host(body: schemas.HostIn, db: Session = Depends(get_db)):
 def update_host(host_id: uuid.UUID, body: schemas.HostUpdate, db: Session = Depends(get_db)):
     host = _get_host(db, host_id)
     for key, value in body.model_dump(exclude_unset=True).items():
-        if key in ("name", "business_name", "share_percent") and value is None:
+        if key in ("name", "business_name", "monthly_fee") and value is None:
             continue
         setattr(host, key, (value or None) if key in ("email", "phone", "address") else value)
     _commit_host(db)
@@ -231,7 +231,7 @@ def build_portal(db: Session, host: Host, month: date | None = None) -> schemas.
                          .order_by(HostPayout.month.desc())).all()
     return schemas.HostPortalOut(
         agreement=agreement_out(host),
-        business_name=host.business_name, name=host.name, share_percent=host.share_percent,
+        business_name=host.business_name, name=host.name, monthly_fee=host.monthly_fee,
         timezone=settings.timezone, payout_status=_payout_status(host),
         payouts_available=stripe_api.configured(), month=current, history=history,
         payouts=[schemas.PayoutOut.model_validate(p) for p in payouts],

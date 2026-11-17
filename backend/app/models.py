@@ -330,8 +330,8 @@ class AdPayment(Base):
 
 
 class Host(Base):
-    """A business that hosts screens. It earns `share_percent` of the ad
-    revenue its screens play, sees it on a private page (/host/<token>) and is
+    """A business that hosts screens. It earns a flat `monthly_fee` (cents)
+    per screen per month, sees it on a private page (/host/<token>) and is
     paid through Stripe Connect."""
 
     __tablename__ = "hosts"
@@ -341,7 +341,9 @@ class Host(Base):
     business_name: Mapped[str] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(40))
-    share_percent: Mapped[int] = mapped_column(Integer, default=20)
+    # No longer used: hosts were once paid a share of ad revenue.
+    share_percent: Mapped[int] = mapped_column(Integer, default=0)
+    monthly_fee: Mapped[int] = mapped_column(Integer, default=1500, server_default="1500")  # cents per screen
     # The secret in the host's private link. Only the owner (admin) can read
     # it; resetting it makes the old link stop working.
     access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
