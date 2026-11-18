@@ -3,9 +3,8 @@
 For a calendar month (local time): every advertiser subscription payment
 collected that month (AdPayment, recurring lines only) is split across the
 screens that played that advertiser's ad, in proportion to seconds on screen
-that month (shown to the owner only). Hosts are paid a flat monthly fee per
-screen, counted from when the host started (or the screen was paired, if
-later) and, for the month in progress, up to now.
+that month. A host earns its share_percent of what its screens brought in.
+Revenue for an ad that played nowhere that month isn't assigned to any host.
 """
 
 from collections import defaultdict
@@ -109,13 +108,13 @@ class ScreenMonth:
     plays: int
     seconds: int
     revenue: int  # cents the screen brought in
-    earnings: int  # the host's flat fee for this screen, cents
+    earnings: int  # the host's share, cents
 
 
 @dataclass
 class HostMonth:
     month: date
-    monthly_fee: int
+    share_percent: int
     revenue: int
     earnings: int
     screens: list[ScreenMonth] = field(default_factory=list)
@@ -137,28 +136,16 @@ def host_month(db: Session, host: Host, month: date, now: datetime | None = None
             .where(PlayLog.device_id == d.id, PlayLog.started_at >= start, PlayLog.started_at < end)
         ).one()
         revenue = device_revenue.get(d.id, 0.0)
-        fee = fee_for(host, d, start, end, now)
         screens.append(ScreenMonth(
             device_id=d.id, name=d.name or "Screen", venue_name=d.venue_name, online=is_online(d, now),
             last_seen_at=d.last_seen_at, uptime_percent=uptime_percent(db, d, start, end, now),
             plays=plays, seconds=round(ms / 1000), revenue=round(revenue),
-            earnings=fee,
+            earnings=round(revenue * host.share_percent / 100),
         ))
     total = sum(device_revenue.get(d.id, 0.0) for d in devices)
     payout = db.scalar(select(HostPayout).where(HostPayout.host_id == host.id, HostPayout.month == month))
-    return HostMonth(month=month, monthly_fee=host.monthly_fee, revenue=round(total),
-                     earnings=sum(s.earnings for s in screens), screens=screens, payout=payout)
-
-
-def fee_for(host: Host, device: Device, start: datetime, end: datetime, now: datetime) -> int:
-    """The host's flat fee for one screen in the month [start, end): the
-    monthly fee times the share of the month the screen was hosted, from the
-    later of the host's start and the screen's pairing, up to now."""
-    begin = max(t for t in (start, host.created_at, device.paired_at) if t is not None)
-    stop = min(end, now)
-    if stop <= begin:
-        return 0
-    return round(host.monthly_fee * (stop - begin) / (end - start))
+    return HostMonth(month=month, share_percent=host.share_percent, revenue=round(total),
+                     earnings=round(total * host.share_percent / 100), screens=screens, payout=payout)
 
 
 def recent_months(month: date, count: int) -> list[date]:

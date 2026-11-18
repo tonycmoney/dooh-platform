@@ -1,5 +1,5 @@
 """Stripe webhook: payment confirmations for website orders, and paid
-subscription invoices (ad revenue)."""
+subscription invoices (the ad revenue hosts earn a share of)."""
 
 import json
 import logging

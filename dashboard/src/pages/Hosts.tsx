@@ -15,12 +15,12 @@ function HostForm({ host, onSaved, onClose }: { host?: Host; onSaved: (h: Host) 
     email: host?.email ?? '',
     phone: host?.phone ?? '',
     address: host?.address ?? '',
-    monthly_fee: host?.monthly_fee ?? 1500,
+    share_percent: host?.share_percent ?? 10,
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (k: keyof HostInput) => (e: { target: { value: string } }) =>
-    setForm({ ...form, [k]: k === 'monthly_fee' ? Math.round(Number(e.target.value) * 100) : e.target.value })
+    setForm({ ...form, [k]: k === 'share_percent' ? Number(e.target.value) : e.target.value })
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -44,8 +44,8 @@ function HostForm({ host, onSaved, onClose }: { host?: Host; onSaved: (h: Host) 
         <label>Phone<input value={form.phone ?? ''} onChange={set('phone')} /></label>
         <label>Business address<input value={form.address ?? ''} onChange={set('address')} /></label>
         <label>
-          Monthly fee per tablet ($)
-          <input type="number" min={0} max={1000} step="0.01" value={(form.monthly_fee ?? 0) / 100} onChange={set('monthly_fee')} />
+          Host share of ad revenue (%)
+          <input type="number" min={0} max={100} value={form.share_percent} onChange={set('share_percent')} />
         </label>
         {error && <p className="error">{error}</p>}
         <div className="actions">
@@ -208,7 +208,7 @@ export default function Hosts() {
                     <td>
                       <b>{h.business_name}</b>
                       <div className="muted">{h.name}{h.email ? ` · ${h.email}` : ''}</div>
-                      <div className="muted">{dollars(h.monthly_fee)} a month per tablet</div>
+                      <div className="muted">{h.share_percent}% share</div>
                       {h.agreement_signed_at ? (
                         <div className="status status-approved" title={`Signed by ${h.agreement_signed_name}`}>
                           ✓ Agreement signed {new Date(h.agreement_signed_at).toLocaleDateString()}

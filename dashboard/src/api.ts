@@ -226,13 +226,13 @@ export interface HostScreenMonth {
   seconds: number
   /** Cents the screen brought in. */
   revenue: number
-  /** The host's flat fee for this screen, cents. */
+  /** The host's share, cents. */
   earnings: number
 }
 
 export interface HostMonth {
   month: string
-  monthly_fee: number
+  share_percent: number
   revenue: number
   earnings: number
   screens: HostScreenMonth[]
@@ -248,7 +248,7 @@ export interface Host {
   email: string | null
   phone: string | null
   address: string | null
-  monthly_fee: number
+  share_percent: number
   link: string
   payout_status: PayoutStatus
   agreement_signed_name: string | null
@@ -265,7 +265,7 @@ export interface HostInput {
   email?: string | null
   phone?: string | null
   address?: string | null
-  monthly_fee?: number
+  share_percent?: number
 }
 
 export interface HostAgreement {
@@ -282,7 +282,7 @@ export interface HostPortal {
   agreement: HostAgreement | null
   business_name: string
   name: string
-  monthly_fee: number
+  share_percent: number
   timezone: string
   payout_status: PayoutStatus
   payouts_available: boolean

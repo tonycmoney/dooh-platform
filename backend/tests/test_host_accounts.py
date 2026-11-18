@@ -36,7 +36,7 @@ def test_sign_up_then_sign_in_by_email(site):
     assert site.post(f"{BASE}/account", json={"email": "joe@example.com"}).json()["detail"] == "no_host"
     res = register(site)
     assert res.status_code == 201
-    assert res.json()["monthly_fee"] == 1500 and res.json()["email"] == "joe@example.com"
+    assert res.json()["share_percent"] == 10 and res.json()["email"] == "joe@example.com"
     assert register(site).status_code == 200  # same email again: same host
     page = site.post(f"{BASE}/account", json={"email": "JOE@example.com"}).json()
     assert page["business_name"] == "Joe's Barbershop" and len(page["history"]) == 6

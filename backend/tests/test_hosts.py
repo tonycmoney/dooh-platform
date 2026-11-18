@@ -8,7 +8,7 @@ import pytest
 from app import host_revenue, stripe_api
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Device, Host, AdPayment, Media, MediaKind, PlayLog, StripePayment, PaymentStatus, WebsiteOrder
+from app.models import AdPayment, Media, MediaKind, PlayLog, StripePayment, PaymentStatus, WebsiteOrder
 
 from .conftest import pair_device
 from .test_stripe import send
@@ -58,28 +58,18 @@ def make_host(admin, **kw):
     return res.json()
 
 
-def backdate(host, *screens, to=None):
-    """Makes the host and its screens start before last month."""
-    when = to or host_revenue.month_bounds(LAST_MONTH)[0] - timedelta(days=3)
-    with SessionLocal() as db:
-        db.get(Host, uuid.UUID(host["id"])).created_at = when
-        for s in screens:
-            db.get(Device, uuid.UUID(s)).paired_at = when
-        db.commit()
-
-
 def token_of(host):
     return host["link"].rsplit("/", 1)[1]
 
 
-def test_new_host_gets_15_dollars_a_month_and_a_private_link(admin):
+def test_new_host_gets_10_percent_and_a_private_link(admin):
     host = make_host(admin)
-    assert host["monthly_fee"] == 1500 and "share_percent" not in host
+    assert host["share_percent"] == 10
     assert "/host/" in host["link"] and len(token_of(host)) >= 40
     assert host["payout_status"] == "not_started"
 
 
-def test_revenue_is_split_by_play_time_and_host_earns_a_flat_fee(client, admin):
+def test_revenue_is_split_by_play_time_and_host_earns_its_share(client, admin):
     _, screen_a = pair_device(admin, uid="tablet-a")
     _, screen_b = pair_device(admin, uid="tablet-b")
     ad = advertiser()
@@ -88,16 +78,15 @@ def test_revenue_is_split_by_play_time_and_host_earns_a_flat_fee(client, admin):
     played(screen_b, ad, 100, mid(LAST_MONTH))
     host = make_host(admin)
     admin.put(f"/api/admin/hosts/{host['id']}/screens", json={"device_ids": [screen_a]})
-    backdate(host, screen_a)
 
     month = admin.get(f"/api/admin/hosts/{host['id']}/months/{LAST_MONTH}").json()
     assert month["revenue"] == 26250  # $262.50 of the $350
-    assert month["earnings"] == 1500  # flat $15 for the screen, whatever it played
+    assert month["earnings"] == 2625  # 10% = $26.25
     assert month["screens"][0]["plays"] == 1 and month["screens"][0]["seconds"] == 300
 
     page = client.get(f"/api/host/{token_of(host)}", params={"month": str(LAST_MONTH)}).json()
     assert page["business_name"] == "Joe's Barbershop"
-    assert page["month"]["earnings"] == 1500 and page["monthly_fee"] == 1500
+    assert page["month"]["earnings"] == 2625
     assert len(page["history"]) == 6
 
 
@@ -166,7 +155,6 @@ def test_payout_setup_and_monthly_payout(client, admin, fake_stripe):
     played(screen, ad, 60, mid(LAST_MONTH))
     host = make_host(admin)
     admin.put(f"/api/admin/hosts/{host['id']}/screens", json={"device_ids": [screen]})
-    backdate(host, screen)
     token = token_of(host)
 
     pay = lambda m: admin.post(f"/api/admin/hosts/{host['id']}/payouts", json={"month": str(m)})
@@ -179,10 +167,10 @@ def test_payout_setup_and_monthly_payout(client, admin, fake_stripe):
 
     assert pay(THIS_MONTH).status_code == 400  # month not finished
     res = pay(LAST_MONTH)
-    assert res.status_code == 201 and res.json()["amount"] == 1500  # $15 flat
+    assert res.status_code == 201 and res.json()["amount"] == 3500  # 10% of $350
     assert pay(LAST_MONTH).status_code == 409  # only once
-    assert fake_stripe == ["account", ("transfer", 1500, f"host-payout-{host['id']}-{LAST_MONTH}")]
-    assert client.get(f"/api/host/{token}").json()["payouts"][0]["amount"] == 1500
+    assert fake_stripe == ["account", ("transfer", 3500, f"host-payout-{host['id']}-{LAST_MONTH}")]
+    assert client.get(f"/api/host/{token}").json()["payouts"][0]["amount"] == 3500
 
 
 def test_payout_setup_without_stripe_key_is_a_friendly_error(client, admin, monkeypatch):
@@ -216,7 +204,7 @@ def test_host_signs_agreement_filled_with_their_details(client, admin, monkeypat
     sent = []
     monkeypatch.setattr("app.notify.send_email", lambda subject, text, **kw: sent.append((subject, text, kw)))
     _, screen = pair_device(admin)
-    host = make_host(admin, phone="203 555 0100", address="12 Main St, New Haven, CT")
+    host = make_host(admin, share_percent=10, phone="203 555 0100", address="12 Main St, New Haven, CT")
     admin.put(f"/api/admin/hosts/{host['id']}/screens", json={"device_ids": [screen]})
     token = token_of(host)
 
@@ -225,9 +213,7 @@ def test_host_signs_agreement_filled_with_their_details(client, admin, monkeypat
     details = {d["label"]: d["value"] for d in agreement["details"]}
     assert details["Host business name"] == "Joe's Barbershop"
     assert details["Business address"] == "12 Main St, New Haven, CT"
-    assert details["Monthly fee"] == "$15 per tablet"
-    assert any("flat fee of $15 per month" in s["body"] for s in agreement["sections"])
-    assert not any("%" in s["body"] for s in agreement["sections"])
+    assert any("10% of the ad revenue" in s["body"] for s in agreement["sections"])
 
     refused = client.post(f"/api/host/{token}/agreement", json={"name": "Joe Smith", "agree": False})
     assert refused.status_code == 400
@@ -239,16 +225,4 @@ def test_host_signs_agreement_filled_with_their_details(client, admin, monkeypat
     assert listed["address"] == "12 Main St, New Haven, CT"
     # Owner's copy, then the host's copy, each with the signed text.
     assert len(sent) == 2 and sent[1][2]["to"] == ["joe@example.com"]
-    assert "flat fee of $15 per month" in sent[0][1] and "Host: Joe Smith" in sent[0][1]
-
-
-def test_flat_fee_is_prorated_from_the_start_and_up_to_now(admin):
-    _, screen = pair_device(admin)
-    host = make_host(admin, monthly_fee=2000)
-    admin.put(f"/api/admin/hosts/{host['id']}/screens", json={"device_ids": [screen]})
-    start, end = host_revenue.month_bounds(LAST_MONTH)
-    backdate(host, screen, to=start + (end - start) / 2)  # started half way through last month
-    last = admin.get(f"/api/admin/hosts/{host['id']}/months/{LAST_MONTH}").json()
-    assert last["earnings"] == 1000 and last["monthly_fee"] == 2000
-    this = admin.get(f"/api/admin/hosts/{host['id']}/months/{THIS_MONTH}").json()
-    assert 0 < this["earnings"] <= 2000  # so far this month
+    assert "10% of the ad revenue" in sent[0][1] and "Host: Joe Smith" in sent[0][1]

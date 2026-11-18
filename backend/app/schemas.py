@@ -422,7 +422,7 @@ class HostIn(BaseModel):
     business_name: ShortText
     email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
-    monthly_fee: Annotated[int, Field(ge=0, le=100000)] | None = None  # cents per screen
+    share_percent: Percent | None = None
     address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
@@ -431,7 +431,7 @@ class HostUpdate(BaseModel):
     business_name: ShortText | None = None
     email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=255)] | None = None
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=40)] | None = None
-    monthly_fee: Annotated[int, Field(ge=0, le=100000)] | None = None  # cents per screen
+    share_percent: Percent | None = None
     address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
@@ -466,7 +466,7 @@ class HostScreenMonthOut(BaseModel):
 
 class HostMonthOut(BaseModel):
     month: date
-    monthly_fee: int
+    share_percent: int
     revenue: int
     earnings: int
     screens: list[HostScreenMonthOut]
@@ -480,7 +480,7 @@ class HostOut(BaseModel):
     email: str | None
     phone: str | None
     address: str | None = None
-    monthly_fee: int
+    share_percent: int
     link: str
     payout_status: str  # not_started | pending | ready
     agreement_signed_name: str | None = None
@@ -520,7 +520,7 @@ class HostPortalOut(BaseModel):
     agreement: AgreementOut | None = None
     business_name: str
     name: str
-    monthly_fee: int
+    share_percent: int
     timezone: str
     payout_status: str
     payouts_available: bool

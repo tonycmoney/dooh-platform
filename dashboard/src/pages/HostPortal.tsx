@@ -188,7 +188,7 @@ export default function HostPortal() {
         <div className="hp-label">{isCurrent ? 'Earned so far this month' : `Earned in ${monthLabel(m.month)}`}</div>
         <div className="hp-big">{dollars(m.earnings)}</div>
         <div className="muted">
-          {dollars(data.monthly_fee)} a month for each tablet you host{m.screens.length > 1 ? ` (${m.screens.length} tablets)` : ''}
+          Your {data.share_percent}% of {dollars(m.revenue)} in ad revenue your screen{m.screens.length === 1 ? '' : 's'} played
         </div>
         <div className="hp-stats">
           <div><b>{totalPlays.toLocaleString()}</b><span>ad plays</span></div>
@@ -253,9 +253,9 @@ export default function HostPortal() {
       )}
 
       <p className="muted hp-foot">
-        How this works: you earn a flat {dollars(data.monthly_fee)} a month for each tablet you host, no matter how many
-        ads play. Your first month counts from your start date. This month's amount grows day by day and is paid after
-        the month ends. Times are {data.timezone.replace('_', ' ')}. Questions? Call {PHONE}.
+        How this works: each month, every advertiser's payment is split across the screens that played their ad, by how
+        long it played. You earn {data.share_percent}% of what your screens bring in. Numbers update through the month;
+        times are {data.timezone.replace('_', ' ')}. Questions? Call {PHONE}.
       </p>
     </div>
   )
