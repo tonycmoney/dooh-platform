@@ -75,6 +75,11 @@ class _SettingsPanelState extends State<SettingsPanel> {
       ('Status', c.lastError ?? 'OK'),
       ('Plays waiting to upload', '${c.playLog.pendingCount}'),
       (
+        'No connection since',
+        c.store.offlineSince?.toLocal().toString().split('.').first ?? '—',
+      ),
+      ('Outages waiting to upload', '${c.store.pendingOutages.length}'),
+      (
         'Cached media',
         _cacheBytes == null
             ? '…'

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet'
-import { api, timeAgo, type LoopSummary, type PlayLog, type Screen } from '../api'
+import { api, timeAgo, type ConnectionMode, type LoopSummary, type PlayLog, type Screen } from '../api'
 import { Modal } from '../components'
 
 const REFRESH_MS = 15000
@@ -49,6 +49,73 @@ function ScreensMap({ screens }: { screens: Screen[] }) {
         ))}
       </MapContainer>
       {located.length === 0 && <div className="map-empty">No GPS locations reported yet</div>}
+    </div>
+  )
+}
+
+const MODE_HELP: Record<ConnectionMode, string> = {
+  wifi: 'On the host’s WiFi. You get an email when it drops, and the tablet logs every outage.',
+  offline: 'No WiFi at this venue. It plays the ads saved on it; stop by with your iPhone hotspot on to load new ads and upload its plays. No offline alerts.',
+}
+
+function ConnectionField({ value, onChange }: { value: ConnectionMode; onChange: (m: ConnectionMode) => void }) {
+  return (
+    <label>
+      How it gets online
+      <select value={value} onChange={(e) => onChange(e.target.value as ConnectionMode)}>
+        <option value="wifi">Host WiFi</option>
+        <option value="offline">Offline, I sync it</option>
+      </select>
+      <span className="muted small-text">{MODE_HELP[value]}</span>
+    </label>
+  )
+}
+
+function duration(minutes: number) {
+  if (minutes < 60) return `${minutes} min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m ? `${h} hr ${m} min` : `${h} hr`
+}
+
+function outageText(o: { started_at: string; minutes: number }) {
+  const at = new Date(o.started_at)
+  return `${at.toLocaleDateString(undefined, { weekday: 'short' })} ${at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}, down ${duration(o.minutes)}`
+}
+
+/** Status pill: offline screens are "Offline" by design, so they read as their sync state. */
+function StatusPill({ s }: { s: Screen }) {
+  if (s.connection_mode === 'offline') {
+    if (s.online) return <span className="pill on">Syncing</span>
+    return <span className={`pill ${s.needs_visit ? 'off' : 'idle'}`}>{s.needs_visit ? 'Needs visit' : 'Offline · OK'}</span>
+  }
+  return <span className={`pill ${s.online ? 'on' : 'off'}`}>{s.online ? 'Online' : 'Offline'}</span>
+}
+
+/** Offline screens to stop by, in one list, so a route is easy to plan. */
+function VisitList({ screens, onOpen }: { screens: Screen[]; onOpen: (s: Screen) => void }) {
+  const due = screens.filter((s) => s.needs_visit)
+  if (due.length === 0) return null
+  return (
+    <div className="card visit-card">
+      <strong>Screens to visit ({due.length})</strong>
+      <div className="muted small-text">Turn on your iPhone hotspot when you get there. The tablet joins it, loads new ads and uploads its plays in a few minutes.</div>
+      <ul className="visit-list">
+        {due.map((s) => (
+          <li key={s.id} onClick={() => onOpen(s)} className="clickable">
+            <strong>{s.name}</strong> · {s.venue_name}
+            {s.venue_address && (
+              <>
+                {' · '}
+                <a href={`https://maps.apple.com/?q=${encodeURIComponent(s.venue_address)}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                  {s.venue_address}
+                </a>
+              </>
+            )}
+            <div className="muted small-text">{s.visit_reasons.join(' · ')} · last synced {timeAgo(s.last_seen_at)}</div>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -130,6 +197,7 @@ function PairDialog({ loops, screens, onClose, onPaired }: {
   onPaired: () => void
 }) {
   const [form, setForm] = useState({ pairing_code: '', name: '', venue_name: '', venue_address: '', loop_id: '', replaces: '' })
+  const [mode, setMode] = useState<ConnectionMode>('wifi')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
@@ -157,6 +225,7 @@ function PairDialog({ loops, screens, onClose, onPaired }: {
         pairing_code: form.pairing_code.trim().toUpperCase(),
         loop_id: form.loop_id || null,
         replaces_device_id: replaces || null,
+        connection_mode: mode,
       })
       onPaired()
     } catch (err) {
@@ -201,6 +270,7 @@ function PairDialog({ loops, screens, onClose, onPaired }: {
           Venue address
           <input value={form.venue_address} onChange={(e) => set('venue_address', e.target.value)} placeholder="123 Main St, Springfield" />
         </label>
+        {!form.replaces && <ConnectionField value={mode} onChange={setMode} />}
         <label>
           {form.replaces ? 'Loop to play (empty = keep the replaced screen’s loop)' : 'Loop to play (optional)'}
           <select value={form.loop_id} onChange={(e) => set('loop_id', e.target.value)}>
@@ -230,7 +300,7 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
     venue_address: screen.venue_address ?? '',
     loop_id: screen.loop_id ?? '',
   })
-  const [fill, setFill] = useState(screen.programmatic_fill)
+  const [mode, setMode] = useState<ConnectionMode>(screen.connection_mode)
   const [plays, setPlays] = useState<PlayLog[]>([])
   const [error, setError] = useState('')
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
@@ -249,7 +319,7 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
         name: form.name,
         venue_name: form.venue_name,
         venue_address: form.venue_address,
-        programmatic_fill: fill,
+        connection_mode: mode,
         ...(loopChanged ? (form.loop_id ? { loop_id: form.loop_id } : { clear_loop: true }) : {}),
       })
       onSaved()
@@ -270,17 +340,13 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
         <label>Screen name<input value={form.name} onChange={(e) => set('name', e.target.value)} required /></label>
         <label>Venue name<input value={form.venue_name} onChange={(e) => set('venue_name', e.target.value)} required /></label>
         <label>Venue address<input value={form.venue_address} onChange={(e) => set('venue_address', e.target.value)} /></label>
-        <label className="check-row">
-          <input type="checkbox" checked={fill} onChange={(e) => setFill(e.target.checked)} />
-          Play Trillboards ads when this screen has no ads of mine
-        </label>
-        {fill && screen.programmatic_status !== 'ready' && (
-          <div className="muted">
-            {screen.programmatic_status === 'pending' && 'Connecting to Trillboards on the next check in…'}
-            {screen.programmatic_status === 'error' && `Trillboards: ${screen.programmatic_error}`}
-            {screen.programmatic_status === 'off' && 'Trillboards is not set up on the server (TRILLBOARDS_API_KEY).'}
-          </div>
+        <ConnectionField value={mode} onChange={setMode} />
+        {screen.wifi_unreliable && mode === 'wifi' && (
+          <p className="warn-inline small-text">
+            This WiFi dropped {screen.outages_7d} times ({duration(screen.outage_minutes_7d)} down) in the last 7 days. Consider switching to Offline, I sync it.
+          </p>
         )}
+        {screen.needs_visit && <p className="warn-inline small-text">Needs a visit: {screen.visit_reasons.join(' · ')}</p>}
         <label>
           Loop
           <select value={form.loop_id} onChange={(e) => set('loop_id', e.target.value)}>
@@ -300,6 +366,18 @@ function EditDialog({ screen, loops, onClose, onSaved }: {
           <button className="primary">Save</button>
         </div>
       </form>
+      {screen.connection_mode === 'wifi' && screen.recent_outages.length > 0 && (
+        <>
+          <h3>Connection drops (last 7 days)</h3>
+          <p className="muted small-text">Logged by the tablet itself, so you can show the venue exactly when its WiFi was down.</p>
+          <ul className="outage-list">
+            {screen.recent_outages.map((o) => <li key={o.started_at}>{outageText(o)}</li>)}
+          </ul>
+          {screen.outages_7d > screen.recent_outages.length && (
+            <p className="muted small-text">and {screen.outages_7d - screen.recent_outages.length} more ({duration(screen.outage_minutes_7d)} down in total)</p>
+          )}
+        </>
+      )}
       <h3>Recent plays (proof of play)</h3>
       {plays.length === 0 ? (
         <p className="muted">No plays logged yet.</p>
@@ -346,20 +424,24 @@ export default function Screens() {
     }
   }, [load])
 
-  const online = screens.filter((s) => s.online).length
+  const wifiScreens = screens.filter((s) => s.connection_mode === 'wifi')
+  const online = wifiScreens.filter((s) => s.online).length
+  const offlineCount = screens.length - wifiScreens.length
 
   return (
     <div>
       <header className="page-head">
         <h1>Screens</h1>
         <div className="head-actions">
-          <span className="muted">{online} of {screens.length} online · refreshes every 15s</span>
+          <span className="muted">{online} of {wifiScreens.length} WiFi screens online{offlineCount > 0 && ` · ${offlineCount} offline by design`} · refreshes every 15s</span>
           <button className="primary" onClick={() => setPairing(true)}>+ Pair new screen</button>
         </div>
       </header>
       {error && <p className="error">{error}</p>}
 
       <MaintenancePinCard />
+
+      <VisitList screens={screens} onOpen={setEditing} />
 
       <ScreensMap screens={screens} />
 
@@ -384,8 +466,14 @@ export default function Screens() {
             <tbody>
               {screens.map((s) => (
                 <tr key={s.id} onClick={() => setEditing(s)} className="clickable">
-                  <td><span className={`pill ${s.online ? 'on' : 'off'}`}>{s.online ? 'Online' : 'Offline'}</span></td>
-                  <td><strong>{s.name}</strong></td>
+                  <td><StatusPill s={s} /></td>
+                  <td>
+                    <strong>{s.name}</strong>
+                    <div className="muted small-text">{s.connection_mode === 'wifi' ? 'Host WiFi' : 'Offline, I sync it'}</div>
+                    {s.wifi_unreliable && s.connection_mode === 'wifi' && (
+                      <div className="warn-inline small-text">WiFi dropped {s.outages_7d}× this week</div>
+                    )}
+                  </td>
                   <td>{s.venue_name}<div className="muted">{s.venue_address}</div></td>
                   <td className="muted">
                     {s.latitude != null ? (
@@ -395,13 +483,16 @@ export default function Screens() {
                       </>
                     ) : 'No GPS yet'}
                   </td>
-                  <td title={s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : ''}>{timeAgo(s.last_seen_at)}</td>
+                  <td title={s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : ''}>
+                    {timeAgo(s.last_seen_at)}
+                    {s.connection_mode === 'offline' && !s.online && <div className="muted small-text">last sync</div>}
+                  </td>
                   <td>{s.online ? (s.now_playing_title ?? <span className="muted">Nothing</span>) : <span className="muted">—</span>}</td>
                   <td>
                     {s.loop_name ?? <span className="muted">None</span>}
-                    {s.loop_name && !s.in_sync && <div className="muted">updating…</div>}
-                    {s.programmatic_status === 'ready' && <div className="muted">+ Trillboards fill</div>}
-                    {s.programmatic_status === 'error' && <div className="muted" title={s.programmatic_error ?? ''}>Trillboards error</div>}
+                    {s.loop_name && !s.in_sync && (
+                      <div className="muted">{s.connection_mode === 'offline' && !s.online ? 'new ads on next visit' : 'updating…'}</div>
+                    )}
                   </td>
                   <td><Battery level={s.battery_level} charging={s.is_charging} /></td>
                   <td className="muted">{s.app_version ?? '—'}</td>

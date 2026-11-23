@@ -1,9 +1,11 @@
 """Screen alerts and the daily report schedule.
 
 Every minute the monitor checks each paired screen:
-- offline: no heartbeat for ALERT_OFFLINE_MINUTES
+- offline: no heartbeat for ALERT_OFFLINE_MINUTES (WiFi screens only;
+  offline screens have no WiFi on purpose)
 - not playing: online, but no play has reached the server for
   ALERT_NOT_PLAYING_MINUTES (or twice its loop's longest item, if longer)
+- sync overdue: an offline screen hasn't been synced for OFFLINE_SYNC_DAYS
 
 Each incident is one Alert row: one email when it starts, one when it clears.
 A problem that clears before its email is sent (a blip) sends nothing.
@@ -17,10 +19,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from . import notify, reports
+from . import notify, reports, services
 from .config import settings
 from .db import SessionLocal
-from .models import Alert, AlertKind, ApprovalStatus, Device, LoopItem, Media, PlayLog, Setting
+from .models import Alert, AlertKind, ApprovalStatus, ConnectionMode, Device, LoopItem, Media, PlayLog, Setting
 
 log = logging.getLogger("dooh.alerts")
 
@@ -68,7 +70,7 @@ def _is_not_playing(db: Session, device: Device, now: datetime) -> bool:
     recovered = db.scalar(
         select(func.max(Alert.resolved_at)).where(Alert.device_id == device.id, Alert.kind == AlertKind.offline)
     )
-    for since in (device.paired_at, recovered):
+    for since in (device.paired_at, recovered, device.connected_since):
         if since and now - since < threshold:
             return False
     last_play = db.scalar(select(func.max(PlayLog.received_at)).where(PlayLog.device_id == device.id))
@@ -83,8 +85,15 @@ def evaluate(db: Session, now: datetime | None = None, *, check_offline: bool = 
     for device in devices:
         seen = device.last_seen_at or device.paired_at
         offline = seen is not None and now - seen > offline_after
+        on_wifi = device.connection_mode is ConnectionMode.wifi
         current = _open_alert(db, device, AlertKind.offline)
-        if offline and check_offline and current is None:
+        if current is not None and not on_wifi:
+            # Switched to offline on purpose: close it without a "back online" email.
+            current.resolved_at = now
+            current.resolved_notified_at = current.resolved_notified_at or now
+            current.notified_at = current.notified_at or now
+            current = None
+        elif offline and on_wifi and check_offline and current is None:
             db.add(Alert(device_id=device.id, kind=AlertKind.offline, started_at=seen,
                          detail=f"No check-in since {local(device.last_seen_at)}."))
         elif not offline and current is not None:
@@ -99,12 +108,26 @@ def evaluate(db: Session, now: datetime | None = None, *, check_offline: bool = 
         elif not stalled and current is not None:
             current.resolved_at = now  # playing again, or offline (that alert takes over)
         db.flush()
+
+        overdue = not on_wifi and services.sync_overdue(device, now)
+        current = _open_alert(db, device, AlertKind.sync_overdue)
+        if overdue and current is None:
+            db.add(Alert(device_id=device.id, kind=AlertKind.sync_overdue, started_at=now,
+                         detail=f"Last synced {local(seen)}. Stop by with your hotspot on so it can "
+                                "load any new ads and upload its plays."))
+        elif not overdue and current is not None:
+            current.resolved_at = now
+        db.flush()
     db.commit()
 
 
 # --- Emails -------------------------------------------------------------------
 
-TITLES = {AlertKind.offline: "is offline", AlertKind.not_playing: "stopped playing"}
+TITLES = {
+    AlertKind.offline: "is offline",
+    AlertKind.not_playing: "stopped playing",
+    AlertKind.sync_overdue: "needs a visit",
+}
 
 
 def _screen_lines(device: Device) -> list[str]:
@@ -124,7 +147,8 @@ def alert_email(alert: Alert, device: Device) -> tuple[str, str]:
     lines = [f"{device.name} {TITLES[alert.kind]} (since {local(alert.started_at)}).", "",
              alert.detail or "", "", *_screen_lines(device)]
     if alert.kind is AlertKind.offline:
-        lines += ["", "Common causes: the venue's WiFi or power is off, or the tablet was unplugged."]
+        lines += ["", "Common causes: the venue's WiFi or power is off, or the tablet was unplugged.",
+                  "If this venue has no WiFi, set the screen to Offline on the Screens page."]
     if link := notify.dashboard_link("/screens"):
         lines += ["", f"Dashboard: {link}"]
     return f"⚠ {device.name} {TITLES[alert.kind]}", "\n".join(lines)
@@ -132,6 +156,9 @@ def alert_email(alert: Alert, device: Device) -> tuple[str, str]:
 
 def recovery_email(alert: Alert, device: Device) -> tuple[str, str]:
     minutes = round((alert.resolved_at - alert.started_at).total_seconds() / 60)
+    if alert.kind is AlertKind.sync_overdue:
+        lines = [f"{device.name} synced {local(device.last_seen_at)}.", "", *_screen_lines(device)]
+        return f"✓ {device.name} is synced", "\n".join(lines)
     what = "back online" if alert.kind is AlertKind.offline else "playing again"
     lines = [f"{device.name} is {what} after about {minutes} min (since {local(alert.started_at)}).", "",
              *_screen_lines(device)]

@@ -97,7 +97,7 @@ The image sets `ENVIRONMENT=production`, so the server refuses to start with a m
 | Updates reach the tablet within a minute | The tablet polls `GET /api/player/manifest` every 60 s, and a heartbeat that sees a new manifest version triggers a sync right away |
 | Offline playback | Every file is downloaded and its SHA-256 checked before a new loop goes live; files are cached on the tablet |
 | Heartbeat | `POST /api/player/heartbeat` every 60 s with battery, GPS, app version and what's playing now. The screen shows as offline after 180 s (3 missed heartbeats). |
-| Proof of play | Each play gets a UUID on the tablet and is queued on disk. `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
+| Proof of play | Each play gets a UUID on the tablet and is appended to a journal on disk (weeks of plays fit, see Offline screens). `POST /api/player/plays` inserts with `ON CONFLICT DO NOTHING`, so retries are never counted twice. |
 | Kiosk mode | Device owner + lock task (see above). Fullscreen portrait, screen kept on, system bars hidden, Back button disabled, can be the Home launcher, starts on boot |
 | Crash restart | `PlayerApplication.kt` catches crashes and relaunches the app through a separate restarter process, with an alarm as backup |
 | Uploads from Photos | Accepts JPG, PNG, HEIC, MP4 and MOV, including HEVC, HDR and 4K. The upload is kept untouched as the original, in `ORIGINALS_DIR`, which is never served. The dashboard sends the raw file bytes with an `X-Filename` header; multipart uploads with any field name also work. |
@@ -116,19 +116,20 @@ Businesses that host screens are added on the **Hosts** page, which assigns thei
 
 Payouts use Stripe Connect Express: the host clicks **Set up payouts** on their page and adds a bank account on Stripe; after a month ends the owner clicks **Pay** on the Hosts page, which sends that month's earnings as a Stripe transfer (once per host per month). This needs Connect enabled on the Stripe account, `STRIPE_SECRET_KEY` set on the server, and `invoice.paid` added to the webhook endpoint's events.
 
-## Trillboards programmatic fill
+## Offline screens (venues without WiFi)
 
-When a screen has no paid ads in its loop (or no loop), it shows [Trillboards](https://trillboards.com) programmatic ads instead, so idle screen time still earns money. Trillboards sells those ads, counts the impressions and pays out through Stripe Connect from their screen owner portal.
+Each screen has a **How it gets online** setting on the Screens page (also when pairing):
 
-- Set `TRILLBOARDS_API_KEY` (a `trb_partner_...` key from `npx @trillboards/ads-sdk init`). The key stays on the server.
-- On a paired screen's first heartbeat the backend registers it with Trillboards (`POST /v1/partner/device`, portrait 1080 × 1920, its GPS and venue) and stores the screen's embed URL. A failed registration is shown on the Screens page and retried every 15 minutes.
-- The manifest carries that URL as `fallback_url`. With nothing of ours to play, the tablet opens it full screen in a WebView that can't navigate away from Trillboards. Paid ads take over again at once when they're assigned.
-- Time on Trillboards is logged as plays titled "Trillboards programmatic" with no media, so it never counts toward an advertiser's plays or host revenue splits.
-- Each screen has a "Play Trillboards ads when this screen has no ads of mine" switch on the Screens page; `TRILLBOARDS_ENABLED=false` turns it off everywhere.
+- **Host WiFi** (the default): the screen is expected online. You get the offline alert below when it drops, and the tablet keeps its own log of every time it lost contact for 2 minutes or more (`device_outages`, sent with the next heartbeat). The screen's details show the last 7 days of drops, so you can show the venue exactly when its WiFi was down. A WiFi screen with 5 or more drops, or 4 hours down, in 7 days is flagged as worth switching (`UNRELIABLE_WIFI_OUTAGES`, `UNRELIABLE_WIFI_MINUTES`).
+- **Offline, I sync it**: no WiFi at the venue. The tablet plays the loop saved on it, and no offline alerts are sent. To update it, change its ads on the dashboard, then stop by with your phone's hotspot on: the tablet joins the hotspot (save it as a WiFi network on the tablet before it goes out), loads the new loop and uploads its plays within a few minutes.
+
+Offline screens show **Needs visit** on the Screens page when they have new ads waiting or haven't synced in `OFFLINE_SYNC_DAYS` (default 7) days, and all of them are listed in **Screens to visit** at the top of the page and in the daily report email. An overdue screen also sends one "needs a visit" email, and a "synced" email once you've been by. Offline screens show "offline screen" instead of an uptime figure in reports.
+
+The tablet keeps plays in an append-only journal (`plays.jsonl`, about 200 bytes a play, up to 100 MB, roughly 500,000 plays or seven weeks of 10 second ads around the clock), so a screen can go weeks between visits without losing proof of play.
 
 ## Alerts and daily report
 
-With `MONITORING=true`, the server checks every screen once a minute. It emails you when a screen is **offline for 10 minutes** (no check-in) or **stops playing for 10 minutes** (online, but no plays reported; the limit is longer for loops with long videos). It emails again when the screen recovers. Each incident sends one email, and problems that clear before the email goes out send nothing.
+With `MONITORING=true`, the server checks every screen once a minute. It emails you when a WiFi screen is **offline for 10 minutes** (no check-in) or **stops playing for 10 minutes** (online, but no plays reported; the limit is longer for loops with long videos). It emails again when the screen recovers. Each incident sends one email, and problems that clear before the email goes out send nothing.
 
 Every morning at `DAILY_REPORT_HOUR` (default 7, in `TIMEZONE`, default America/New_York) it emails the previous day's report: each screen's **uptime** (the share of 5-minute slots with a check-in), its incidents, and **plays per ad**. The dashboard's **Reports** page shows the same for any day, plus recent alerts and a test-email button.
 

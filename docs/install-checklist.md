@@ -19,6 +19,7 @@ Printable one-page version: [Screen-Install-Checklist.pdf](Screen-Install-Checkl
 - [ ] Route the cable along edges and clip it down, with no loops anyone can catch. Plug the charger in and confirm the ⚡ charging icon on the dashboard.
 
 ## 3. WiFi
+- [ ] **No WiFi at this venue?** Skip this section. On the dashboard, set the screen to **Offline, I sync it**. It plays the ads saved on it, and you update it by stopping by with your phone's hotspot on.
 - [ ] Ask for the **guest WiFi** name and password. It must not need a sign-in page (hotel- or café-style login).
 - [ ] On the tablet: tap the corners clockwise from top-left, enter the PIN, then **Exit kiosk for 15 min**. Go to **WiFi**, connect, then press **Home** and choose **Back to kiosk mode now**.
 - [ ] Write the network name in the screen's address notes on the dashboard.

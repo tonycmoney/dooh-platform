@@ -1,14 +1,15 @@
 """Endpoints the tablet calls."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import schemas, services, trillboards
+from .. import schemas, services
+from ..config import settings
 from ..db import get_db
 from ..models import Device, PlayLog
 from ..security import new_pairing_code, new_secret, require_device, sha256_hex
@@ -80,11 +81,13 @@ def manifest(device: Device = Depends(require_device), db: Session = Depends(get
 @router.post("/heartbeat", response_model=schemas.HeartbeatOut)
 def heartbeat(
     body: schemas.HeartbeatIn,
-    background: BackgroundTasks,
     device: Device = Depends(require_device),
     db: Session = Depends(get_db),
 ):
     now = datetime.now(timezone.utc)
+    gap = timedelta(seconds=settings.offline_after_seconds)
+    if device.last_seen_at is None or device.connected_since is None or now - device.last_seen_at > gap:
+        device.connected_since = now
     device.last_seen_at = now
     if body.app_version:
         device.app_version = body.app_version
@@ -102,12 +105,8 @@ def heartbeat(
     if body.manifest_version:
         device.manifest_version = body.manifest_version
     services.record_uptime(db, device.id, now)
+    services.record_outages(db, device.id, body.outages)
     db.commit()
-
-    # First heartbeat of a paired screen (or a retry after a failure):
-    # register it with Trillboards so it can show programmatic ads when idle.
-    if trillboards.needs_registration(device, now):
-        background.add_task(trillboards.register_in_background, device.id)
 
     return schemas.HeartbeatOut(
         manifest_version=services.device_manifest(db, device).version,

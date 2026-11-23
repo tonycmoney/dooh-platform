@@ -90,10 +90,26 @@ export interface Screen {
   loop_name: string | null
   in_sync: boolean
   paired_at: string | null
-  /** Trillboards programmatic ads when the screen has none of ours. */
-  programmatic_fill: boolean
-  programmatic_status: 'off' | 'pending' | 'error' | 'ready'
-  programmatic_error: string | null
+  /** wifi: on the host's WiFi, alerts when it drops. offline: no WiFi there,
+   * plays its saved loop and is synced on visits with a phone hotspot. */
+  connection_mode: ConnectionMode
+  /** Offline screens only: why it needs a stop (empty when it doesn't). */
+  needs_visit: boolean
+  visit_reasons: string[]
+  /** Outages the tablet logged itself in the last 7 days. */
+  outages_7d: number
+  outage_minutes_7d: number
+  recent_outages: Outage[]
+  /** A WiFi screen that keeps dropping: worth switching to offline. */
+  wifi_unreliable: boolean
+}
+
+export type ConnectionMode = 'wifi' | 'offline'
+
+export interface Outage {
+  started_at: string
+  ended_at: string
+  minutes: number
 }
 
 export interface Backup {
@@ -139,7 +155,7 @@ export interface Order {
 /** From Stripe: awaiting = no word yet; abandoned = checkout expired unpaid. */
 export type PaymentStatus = 'paid' | 'pending' | 'failed' | 'abandoned' | 'awaiting'
 
-export type AlertKind = 'offline' | 'not_playing'
+export type AlertKind = 'offline' | 'not_playing' | 'sync_overdue'
 
 export interface AdPlays {
   title: string
@@ -507,10 +523,11 @@ export const api = {
     venue_address: string
     loop_id?: string | null
     replaces_device_id?: string | null
+    connection_mode?: ConnectionMode
   }) => request<Screen>('POST', '/api/admin/screens/pair', body),
   updateScreen: (
     id: string,
-    body: Partial<{ name: string; venue_name: string; venue_address: string; loop_id: string; clear_loop: boolean; programmatic_fill: boolean }>,
+    body: Partial<{ name: string; venue_name: string; venue_address: string; loop_id: string; clear_loop: boolean; connection_mode: ConnectionMode }>,
   ) => request<Screen>('PATCH', `/api/admin/screens/${id}`, body),
   unpairScreen: (id: string) => request<void>('DELETE', `/api/admin/screens/${id}`),
   screenPlays: (id: string) => request<PlayLog[]>('GET', `/api/admin/screens/${id}/plays?limit=20`),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type AlertRow, type DailyReport, type MonitoringStatus } from '../api'
 
-const KIND = { offline: 'Offline', not_playing: 'Not playing' } as const
+const KIND = { offline: 'Offline', not_playing: 'Not playing', sync_overdue: 'Needs a visit' } as const
 
 function time(iso: string, tz: string) {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz })

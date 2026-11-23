@@ -8,9 +8,20 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
-from . import formatting, schemas, trillboards
+from . import formatting, schemas
 from .config import settings
-from .models import ApprovalStatus, Device, DeviceUptime, Loop, LoopItem, Media, MediaKind, Setting
+from .models import (
+    ApprovalStatus,
+    ConnectionMode,
+    Device,
+    DeviceOutage,
+    DeviceUptime,
+    Loop,
+    LoopItem,
+    Media,
+    MediaKind,
+    Setting,
+)
 
 FILES_PREFIX = "/files"
 
@@ -128,18 +139,10 @@ def loop_out(loop: Loop) -> schemas.LoopOut:
 EMPTY_MANIFEST_VERSION = hashlib.sha256(b"empty").hexdigest()
 
 
-def build_manifest(db: Session, loop_id, fallback_url: str | None = None) -> schemas.Manifest:
-    """fallback_url: what the screen shows when it has no paid ads to play
-    (Trillboards programmatic fill), part of the version so a change reaches
-    the tablet on its next heartbeat."""
+def build_manifest(db: Session, loop_id) -> schemas.Manifest:
     loop = load_loop(db, loop_id) if loop_id else None
     if loop is None:
-        version = EMPTY_MANIFEST_VERSION
-        if fallback_url:
-            version = hashlib.sha256(f"empty|{fallback_url}".encode()).hexdigest()
-        return schemas.Manifest(
-            version=version, loop_id=None, loop_name=None, items=[], fallback_url=fallback_url
-        )
+        return schemas.Manifest(version=EMPTY_MANIFEST_VERSION, loop_id=None, loop_name=None, items=[])
 
     items: list[schemas.ManifestItem] = []
     for item in loop.items:
@@ -180,7 +183,6 @@ def build_manifest(db: Session, loop_id, fallback_url: str | None = None) -> sch
             "loop": str(loop.id),
             "name": loop.name,
             "items": [i.model_dump(mode="json") for i in items],
-            **({"fallback_url": fallback_url} if fallback_url else {}),
         },
         sort_keys=True,
     )
@@ -189,12 +191,11 @@ def build_manifest(db: Session, loop_id, fallback_url: str | None = None) -> sch
         loop_id=loop.id,
         loop_name=loop.name,
         items=items,
-        fallback_url=fallback_url,
     )
 
 
 def device_manifest(db: Session, device: Device) -> schemas.Manifest:
-    return build_manifest(db, device.loop_id, trillboards.fallback_url(device))
+    return build_manifest(db, device.loop_id)
 
 
 # --- Devices ------------------------------------------------------------------
@@ -224,7 +225,17 @@ def is_online(device: Device, now: datetime | None = None) -> bool:
 
 
 def device_out(db: Session, device: Device, now: datetime | None = None) -> schemas.DeviceOut:
+    now = now or datetime.now(timezone.utc)
     expected = device_manifest(db, device).version
+    in_sync = device.manifest_version == expected
+    outages = db.scalars(
+        select(DeviceOutage)
+        .where(DeviceOutage.device_id == device.id, DeviceOutage.ended_at > now - timedelta(days=7))
+        .order_by(DeviceOutage.started_at.desc())
+    ).all()
+    outage_minutes = sum(_minutes(o.started_at, o.ended_at) for o in outages)
+    wifi = device.connection_mode is ConnectionMode.wifi
+    reasons = visit_reasons(device, in_sync, now)
     return schemas.DeviceOut(
         id=device.id,
         device_uid=device.device_uid,
@@ -244,19 +255,52 @@ def device_out(db: Session, device: Device, now: datetime | None = None) -> sche
         now_playing_media_id=device.now_playing_media_id,
         loop_id=device.loop_id,
         loop_name=device.loop.name if device.loop else None,
-        in_sync=device.manifest_version == expected,
+        in_sync=in_sync,
         paired_at=device.paired_at,
-        programmatic_fill=device.programmatic_fill,
-        programmatic_status=programmatic_status(device),
-        programmatic_error=device.trillboards_error,
+        connection_mode=device.connection_mode,
+        needs_visit=bool(reasons),
+        visit_reasons=reasons,
+        outages_7d=len(outages),
+        outage_minutes_7d=outage_minutes,
+        recent_outages=[
+            schemas.OutageOut(started_at=o.started_at, ended_at=o.ended_at, minutes=_minutes(o.started_at, o.ended_at))
+            for o in outages[:5]
+        ],
+        wifi_unreliable=wifi and bool(outages) and (
+            len(outages) >= settings.unreliable_wifi_outages
+            or outage_minutes >= settings.unreliable_wifi_minutes
+        ),
     )
 
 
-def programmatic_status(device: Device) -> str:
-    if not device.programmatic_fill or not settings.trillboards_enabled:
-        return "off"
-    if device.trillboards_embed_url:
-        return "ready"
-    if not trillboards.configured():
-        return "off"
-    return "error" if device.trillboards_error else "pending"
+def _minutes(start: datetime, end: datetime) -> int:
+    return max(0, round((end - start).total_seconds() / 60))
+
+
+def sync_overdue(device: Device, now: datetime) -> bool:
+    """An offline screen that hasn't checked in for offline_sync_days."""
+    seen = device.last_seen_at or device.paired_at
+    return seen is not None and now - seen > timedelta(days=settings.offline_sync_days)
+
+
+def visit_reasons(device: Device, in_sync: bool, now: datetime) -> list[str]:
+    """Why an offline screen needs a stop (WiFi screens update themselves)."""
+    if device.connection_mode is not ConnectionMode.offline or device.paired_at is None:
+        return []
+    reasons = []
+    if not in_sync:
+        reasons.append("New ads to load")
+    if sync_overdue(device, now):
+        days = (now - (device.last_seen_at or device.paired_at)).days
+        reasons.append(f"Not synced in {days} days")
+    return reasons
+
+
+def record_outages(db: Session, device_id, outages: list[schemas.OutageIn]) -> None:
+    rows = [
+        {"id": o.id, "device_id": device_id, "started_at": o.started_at, "ended_at": o.ended_at}
+        for o in outages
+        if o.ended_at > o.started_at
+    ]
+    if rows:
+        db.execute(pg_insert(DeviceOutage).values(rows).on_conflict_do_nothing(index_elements=["id"]))

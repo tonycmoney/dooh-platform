@@ -17,6 +17,7 @@ This builds the player signed with the key in `~/dooh-keys`. **Back that folder 
 - [ ] Used tablet: **Settings → System → Reset → Factory reset** first, then set up as above.
 - [ ] If a Google account is signed in, remove it: **Settings → Passwords & accounts** (or **Accounts**) → the account → **Remove account**. Android won't allow kiosk mode while any account is present. Removing it also stops Play Store auto-updates.
 - [ ] Connect to the venue's WiFi (Settings → Network & internet).
+- [ ] Also save your phone's hotspot as a WiFi network (turn the hotspot on, then connect to it here). Every tablet should know it: it's how offline screens get new ads when you visit, and a backup for WiFi screens. A tablet that knows both prefers whichever is in range.
 - [ ] Set the time zone (Settings → System → Date & time). Updates are only allowed between 2:00 and 5:00 am local time.
 
 **2. Turn on USB debugging**

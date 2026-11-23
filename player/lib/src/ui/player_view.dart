@@ -7,7 +7,6 @@ import 'package:video_player/video_player.dart';
 import '../controller.dart';
 import '../models.dart';
 import 'blur_fill.dart';
-import 'programmatic_fill.dart';
 import 'text_slide_view.dart';
 
 /// Plays the cached loop forever. Each item is shown for its set duration.
@@ -208,11 +207,7 @@ class _PlayerViewState extends State<PlayerView> {
   Widget build(BuildContext context) {
     final item = _item;
     Widget child;
-    final fallback = _manifest.fallbackUrl;
-    if (item == null && _manifest.items.isEmpty && fallback != null) {
-      // No paid ads: Trillboards programmatic ads fill the screen.
-      child = _ProgrammaticSlot(controller: ctl, url: fallback);
-    } else if (item == null) {
+    if (item == null) {
       child = _Idle(controller: ctl, hasLoop: _manifest.loopId != null);
     } else {
       switch (item.kind) {
@@ -265,12 +260,7 @@ class _PlayerViewState extends State<PlayerView> {
       color: Colors.black,
       child: SizedBox.expand(
         child: KeyedSubtree(
-          key: ValueKey(
-            item?.itemId ??
-                (_manifest.items.isEmpty && fallback != null
-                    ? 'programmatic'
-                    : 'idle'),
-          ),
+          key: ValueKey(item?.itemId ?? 'idle'),
           child: child,
         ),
       ),
@@ -307,39 +297,4 @@ class _Idle extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Wraps [ProgrammaticFill] so the controller knows when Trillboards time
-/// starts and stops (for proof of play and the dashboard's "now playing").
-class _ProgrammaticSlot extends StatefulWidget {
-  const _ProgrammaticSlot({required this.controller, required this.url});
-
-  final PlayerController controller;
-  final String url;
-
-  @override
-  State<_ProgrammaticSlot> createState() => _ProgrammaticSlotState();
-}
-
-class _ProgrammaticSlotState extends State<_ProgrammaticSlot> {
-  @override
-  void initState() {
-    super.initState();
-    // After this frame: starting can notify listeners, which rebuild widgets.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.controller.onProgrammaticStarted();
-    });
-  }
-
-  @override
-  void dispose() {
-    widget.controller.onProgrammaticStopped();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => ProgrammaticFill(
-    url: widget.url,
-    onEvent: widget.controller.onProgrammaticEvent,
-  );
 }

@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:uuid/uuid.dart';
 
 import 'api.dart';
 import 'content_cache.dart';
@@ -15,6 +18,11 @@ enum Phase { starting, pairing, playing }
 
 /// Owns the tablet's lifecycle: pairing, then syncing content every minute,
 /// heartbeats every 60 s and proof-of-play uploads.
+///
+/// With no internet (a venue without WiFi, or its WiFi down) the tablet keeps
+/// playing the loop saved on it, queues its plays, and logs how long it was
+/// cut off. Everything goes up the moment it can reach the server again,
+/// e.g. when Tony stops by with his phone's hotspot.
 class PlayerController extends ChangeNotifier {
   PlayerController({
     required this.store,
@@ -32,6 +40,11 @@ class PlayerController extends ChangeNotifier {
   static const playFlushInterval = Duration(seconds: 30);
   static const pairingPollInterval = Duration(seconds: 3);
 
+  /// Shorter losses of contact aren't logged as outages.
+  static const minOutage = Duration(minutes: 2);
+  static const _maxPendingOutages = 500;
+  static const _uuid = Uuid();
+
   late final PlayerApi api = PlayerApi(
     baseUrl: store.serverUrl,
     token: store.token,
@@ -45,15 +58,6 @@ class PlayerController extends ChangeNotifier {
   DateTime? lastContactAt;
 
   ManifestItem? nowPlaying;
-
-  /// Trillboards programmatic ads are on screen (see ProgrammaticFill).
-  bool programmaticActive = false;
-  DateTime? _programmaticSince;
-  Timer? _programmaticChunk;
-
-  /// Programmatic time is logged in pieces this long, so the dashboard's
-  /// play history stays current during a long stretch of fill.
-  static const programmaticChunk = Duration(minutes: 2);
   final List<Timer> _timers = [];
   bool _disposed = false;
 
@@ -148,18 +152,24 @@ class PlayerController extends ChangeNotifier {
 
   Future<void> _heartbeatTick() async {
     try {
+      final outages = store.pendingOutages;
       final body = <String, Object?>{
         ...await telemetry.snapshot(),
         'app_version': appVersion,
         'now_playing_media_id': nowPlaying?.mediaId,
-        'now_playing_title':
-            nowPlaying?.title ??
-            (programmaticActive ? PlayLog.programmaticTitle : null),
+        'now_playing_title': nowPlaying?.title,
+        'outages': outages,
         'manifest_version': cache.current.value.version.isEmpty
             ? null
             : cache.current.value.version,
       };
       final result = await api.heartbeat(body);
+      if (outages.isNotEmpty) {
+        final sent = outages.map((o) => o['id']).toSet();
+        store.pendingOutages = store.pendingOutages
+            .where((o) => !sent.contains(o['id']))
+            .toList();
+      }
       _contactOk();
       store.screenName = result.name;
       store.venueName = result.venueName;
@@ -183,52 +193,17 @@ class PlayerController extends ChangeNotifier {
   }
 
   void onItemStarted(ManifestItem item) {
-    onProgrammaticStopped();
     final changed = nowPlaying?.itemId != item.itemId;
     nowPlaying = item;
     if (changed) _notify();
   }
 
-  /// No paid ad on screen (empty loop): the idle screen or Trillboards fill.
+  /// No ad on screen (empty loop): the idle screen.
   void onIdle() {
     if (nowPlaying != null) {
       nowPlaying = null;
       _notify();
     }
-  }
-
-  void onProgrammaticStarted() {
-    onIdle();
-    if (programmaticActive) return;
-    programmaticActive = true;
-    _programmaticSince = DateTime.now();
-    _programmaticChunk?.cancel();
-    _programmaticChunk = Timer.periodic(programmaticChunk, (_) {
-      _logProgrammatic();
-      _programmaticSince = DateTime.now();
-    });
-  }
-
-  void onProgrammaticStopped() {
-    if (!programmaticActive) return;
-    _programmaticChunk?.cancel();
-    _programmaticChunk = null;
-    _logProgrammatic();
-    programmaticActive = false;
-    _programmaticSince = null;
-  }
-
-  void _logProgrammatic() {
-    final since = _programmaticSince;
-    if (since == null) return;
-    playLog.recordProgrammatic(
-      startedAt: since,
-      played: DateTime.now().difference(since),
-    );
-  }
-
-  void onProgrammaticEvent(String name, Map<String, dynamic> data) {
-    debugPrint('Trillboards: $name $data');
   }
 
   void onItemFinished(ManifestItem item, DateTime startedAt, Duration played) {
@@ -241,7 +216,13 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _contactOk() {
-    lastContactAt = DateTime.now();
+    final now = DateTime.now();
+    final since = store.offlineSince;
+    if (since != null) {
+      store.offlineSince = null;
+      if (now.difference(since) >= minOutage) _logOutage(since, now);
+    }
+    lastContactAt = now;
     if (lastError != null) {
       lastError = null;
       _notify();
@@ -254,8 +235,32 @@ class PlayerController extends ChangeNotifier {
       unpairLocally();
       return;
     }
+    if (_isConnectionError(e)) {
+      // Couldn't reach the server at all (no WiFi, or WiFi without internet).
+      // An HTTP error means we did reach it, so that's not an outage.
+      store.offlineSince ??= lastContactAt ?? DateTime.now();
+    }
     lastError = e is ApiException ? e.message : 'Offline: $e';
     _notify();
+  }
+
+  static bool _isConnectionError(Object e) =>
+      e is SocketException ||
+      e is TimeoutException ||
+      e is http.ClientException ||
+      e is HandshakeException;
+
+  /// Queues an outage; it goes up with the next heartbeat.
+  void _logOutage(DateTime start, DateTime end) {
+    final outages = store.pendingOutages
+      ..add({
+        'id': _uuid.v4(),
+        'started_at': start.toUtc().toIso8601String(),
+        'ended_at': end.toUtc().toIso8601String(),
+      });
+    store.pendingOutages = outages.length > _maxPendingOutages
+        ? outages.sublist(outages.length - _maxPendingOutages)
+        : outages;
   }
 
   Future<void> unpairLocally() async {
@@ -263,7 +268,8 @@ class PlayerController extends ChangeNotifier {
     store.claimSecret = null;
     store.pairingCode = null;
     api.token = null;
-    onProgrammaticStopped();
+    store.offlineSince = null;
+    store.pendingOutages = [];
     nowPlaying = null;
     await cache.clear();
     _enterPairing();
@@ -296,7 +302,6 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _programmaticChunk?.cancel();
     _cancelTimers();
     super.dispose();
   }

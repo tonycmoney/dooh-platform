@@ -58,6 +58,31 @@ class Store {
       ? _prefs.remove('pin_locked_until')
       : _prefs.setInt('pin_locked_until', value.millisecondsSinceEpoch);
 
+  /// When the tablet lost contact with the server (null while connected).
+  /// Saved so an outage that spans an app restart is still logged.
+  DateTime? get offlineSince {
+    final ms = _prefs.getInt('offline_since');
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  set offlineSince(DateTime? value) => value == null
+      ? _prefs.remove('offline_since')
+      : _prefs.setInt('offline_since', value.millisecondsSinceEpoch);
+
+  /// Outages logged here, waiting to go up with the next heartbeat.
+  List<Map<String, dynamic>> get pendingOutages {
+    final raw = _prefs.getString('pending_outages');
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  set pendingOutages(List<Map<String, dynamic>> value) =>
+      _set('pending_outages', value.isEmpty ? null : jsonEncode(value));
+
   void _set(String key, String? value) {
     if (value == null) {
       _prefs.remove(key);

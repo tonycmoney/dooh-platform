@@ -49,14 +49,6 @@ class Settings(BaseSettings):
     # Share of ad revenue a new host earns, in percent.
     host_default_share_percent: int = 10
 
-    # Trillboards programmatic fill: screens with no paid ads show
-    # Trillboards ads instead. Partner API key (trb_partner_...); empty = off.
-    trillboards_api_key: str = ""
-    # Master switch, so fill can be paused without removing the key.
-    trillboards_enabled: bool = True
-    # OpenOOH style venue type sent when registering a screen.
-    trillboards_venue_type: str = "retail"
-
     # Email (Resend's HTTPS API; Railway's Hobby plan blocks SMTP).
     resend_api_key: str = ""
     alert_email_to: str = ""  # comma-separated
@@ -70,6 +62,13 @@ class Settings(BaseSettings):
     monitoring: bool = False
     alert_offline_minutes: int = 10
     alert_not_playing_minutes: int = 10
+    # Offline screens (no WiFi at the venue, synced on visits): flag one as
+    # due for a visit when it hasn't synced in this many days.
+    offline_sync_days: int = 7
+    # WiFi screens: suggest switching to offline when the tablet logged this
+    # many outages, or this many minutes down, in the last 7 days.
+    unreliable_wifi_outages: int = 5
+    unreliable_wifi_minutes: int = 240
     timezone: str = "America/New_York"
     daily_report_hour: int = 7  # local time; covers the previous day
 

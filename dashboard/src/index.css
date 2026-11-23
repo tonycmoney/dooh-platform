@@ -111,6 +111,7 @@ tr.clickable:hover td { background: var(--surface-2); }
 .pill { padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
 .pill.on { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
 .pill.off { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.pill.idle { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.on { background: var(--ok); }
 .dot.off { background: var(--danger); }
@@ -277,3 +278,10 @@ button.card-frame { padding: 0; border: 0; background: none; cursor: zoom-in; }
 .hp-empty { text-align: center; color: var(--muted); }
 .hp-foot { line-height: 1.5; margin-top: 8px; }
 @media (max-width: 480px) { .hp-stats { grid-template-columns: 1fr 1fr; } }
+
+/* Offline screens: the list of venues to stop by, and a screen's WiFi drops. */
+.visit-card { margin-bottom: 1rem; border-color: var(--warn); }
+.visit-list { list-style: none; margin: 0.6rem 0 0; padding: 0; }
+.visit-list li { padding: 0.5rem 0; border-top: 1px solid var(--border); }
+.outage-list { margin: 0.3rem 0 0.8rem; padding-left: 1.2rem; }
+p.warn-inline { margin: 0; }

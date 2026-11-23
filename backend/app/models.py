@@ -49,6 +49,11 @@ class VideoFit(str, enum.Enum):
     cut = "cut"  # play once; stop early if the item's time is shorter
 
 
+class ConnectionMode(str, enum.Enum):
+    wifi = "wifi"  # on the host's WiFi: expected online all the time
+    offline = "offline"  # no WiFi there: plays its saved loop, synced on visits
+
+
 class Device(Base):
     __tablename__ = "devices"
 
@@ -90,13 +95,15 @@ class Device(Base):
     )
     host: Mapped["Host | None"] = relationship(back_populates="devices")
 
-    # Trillboards programmatic fill (see trillboards.py): shown when the
-    # screen has no paid ads to play.
-    programmatic_fill: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    trillboards_embed_url: Mapped[str | None] = mapped_column(Text)
-    trillboards_screen_id: Mapped[str | None] = mapped_column(String(100))
-    trillboards_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    trillboards_error: Mapped[str | None] = mapped_column(Text)
+    # How the screen gets online (see ConnectionMode). Decides its alerts.
+    connection_mode: Mapped[ConnectionMode] = mapped_column(
+        Enum(ConnectionMode, name="connection_mode"),
+        default=ConnectionMode.wifi,
+        server_default=ConnectionMode.wifi.value,
+    )
+    # Start of the current stretch of check-ins (reset after a gap), so a
+    # screen that just came back isn't flagged before its saved plays upload.
+    connected_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -217,6 +224,22 @@ class DeviceUptime(Base):
 class AlertKind(str, enum.Enum):
     offline = "offline"  # no heartbeat for a while
     not_playing = "not_playing"  # online, but no plays coming in
+    sync_overdue = "sync_overdue"  # offline screen not visited for too long
+
+
+class DeviceOutage(Base):
+    """A stretch the tablet itself couldn't reach the server (usually the
+    venue's WiFi), logged on the tablet and uploaded once it's back. The id is
+    generated on the tablet, so a resent outage is stored once."""
+
+    __tablename__ = "device_outages"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Alert(Base):

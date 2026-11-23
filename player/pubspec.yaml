@@ -43,9 +43,6 @@ dependencies:
   geolocator: ^14.1.1
   package_info_plus: ^10.2.2
   uuid: ^4.6.0
-  # Trillboards programmatic fill (lib/src/ui/programmatic_fill.dart).
-  webview_flutter: ^4.13.0
-  webview_flutter_android: ^4.10.0
 
 dev_dependencies:
   flutter_test:

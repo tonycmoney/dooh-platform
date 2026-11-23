@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from datetime import date
 
-from .models import AlertKind, ApprovalStatus, FileStatus, FitMode, MediaKind, VideoFit
+from .models import AlertKind, ApprovalStatus, ConnectionMode, FileStatus, FitMode, MediaKind, VideoFit
 
 HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$")]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
@@ -52,6 +52,14 @@ class HeartbeatIn(BaseModel):
     now_playing_media_id: uuid.UUID | None = None
     now_playing_title: str | None = None
     manifest_version: str | None = None
+    # Stretches the tablet couldn't reach the server, logged on the tablet.
+    outages: Annotated[list["OutageIn"], Field(max_length=500)] = []
+
+
+class OutageIn(BaseModel):
+    id: uuid.UUID
+    started_at: datetime
+    ended_at: datetime
 
 
 class MaintenancePin(BaseModel):
@@ -100,8 +108,6 @@ class Manifest(BaseModel):
     loop_id: uuid.UUID | None
     loop_name: str | None
     items: list[ManifestItem]
-    # Shown full screen (Trillboards programmatic ads) when items is empty.
-    fallback_url: str | None = None
 
 
 class PlayIn(BaseModel):
@@ -244,8 +250,9 @@ class PairIn(BaseModel):
     venue_name: ShortText
     venue_address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
     loop_id: uuid.UUID | None = None
-    # Swapping in a new tablet: it takes over this screen's name, venue, loop
-    # and play history, and the old tablet's pairing is removed.
+    connection_mode: ConnectionMode = ConnectionMode.wifi
+    # Swapping in a new tablet: it takes over this screen's name, venue, loop,
+    # connection setting and play history, and the old tablet's pairing is removed.
     replaces_device_id: uuid.UUID | None = None
 
 
@@ -255,8 +262,7 @@ class DeviceUpdate(BaseModel):
     venue_address: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
     loop_id: uuid.UUID | None = None
     clear_loop: bool = False
-    # Show Trillboards programmatic ads when the screen has none of ours.
-    programmatic_fill: bool | None = None
+    connection_mode: ConnectionMode | None = None
 
 
 class DeviceOut(ORM):
@@ -280,11 +286,24 @@ class DeviceOut(ORM):
     loop_name: str | None
     in_sync: bool
     paired_at: datetime | None
-    # Trillboards programmatic fill: "off", "pending" (not registered yet),
-    # "error" (see programmatic_error) or "ready".
-    programmatic_fill: bool = True
-    programmatic_status: str = "off"
-    programmatic_error: str | None = None
+    # "wifi": on the host's WiFi, alerts when it drops. "offline": no WiFi
+    # there; plays its saved loop and is synced on visits.
+    connection_mode: ConnectionMode = ConnectionMode.wifi
+    # Offline screens only: why it needs a visit (empty when it doesn't).
+    needs_visit: bool = False
+    visit_reasons: list[str] = []
+    # Outages the tablet logged in the last 7 days.
+    outages_7d: int = 0
+    outage_minutes_7d: int = 0
+    recent_outages: list["OutageOut"] = []
+    # WiFi screen that keeps dropping: worth switching to offline.
+    wifi_unreliable: bool = False
+
+
+class OutageOut(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    minutes: int
 
 
 class PlayLogOut(ORM):
@@ -377,8 +396,9 @@ class ScreenReport(BaseModel):
     device_id: uuid.UUID
     name: str
     venue_name: str | None
-    uptime_percent: float | None  # None: the screen didn't exist yet that day
+    uptime_percent: float | None  # None: didn't exist yet that day, or an offline screen
     online_minutes: int
+    offline_mode: bool = False  # no WiFi at the venue on purpose
     plays: int
     ads: list[AdPlays]
     incidents: list[IncidentOut]
@@ -390,6 +410,16 @@ class DailyReport(BaseModel):
     screens: list[ScreenReport]
     ads: list[AdPlays]
     total_plays: int
+    # Offline screens to stop by (new ads waiting, or overdue for a sync).
+    visits: list["VisitOut"] = []
+
+
+class VisitOut(BaseModel):
+    device_id: uuid.UUID
+    name: str
+    venue_name: str | None
+    venue_address: str | None
+    reasons: list[str]
 
 
 class AlertOut(BaseModel):
